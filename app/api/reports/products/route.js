@@ -6,9 +6,11 @@ const parseList = (val) => val ? val.split(',').filter(Boolean) : [];
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const store_hash = searchParams.get('store_hash');
+  const dateFrom = searchParams.get('dateFrom');
+  const dateTo = searchParams.get('dateTo');
+  const limit = parseInt(searchParams.get('limit') || '25');
   let companies = parseList(searchParams.get('companies'));
   const salesReps = parseList(searchParams.get('salesReps'));
-  const customerGroups = parseList(searchParams.get('customerGroups'));
 
   try {
     if (salesReps.length > 0) {
@@ -21,167 +23,100 @@ export async function GET(request) {
       companies = companies.length > 0 ? companies.filter(c => repCompanyIds.includes(c)) : repCompanyIds;
     }
 
-    if (customerGroups.length > 0) {
-      const { data: groupCompanies } = await supabaseAdmin
-        .from('companies')
-        .select('bc_company_id')
-        .eq('store_hash', store_hash)
-        .in('customer_group_id', customerGroups);
-      const groupCompanyIds = groupCompanies?.map(c => c.bc_company_id) || [];
-      companies = companies.length > 0 ? companies.filter(c => groupCompanyIds.includes(c)) : groupCompanyIds;
-    }
-
-    // Fetch companies and all their orders in parallel
-    let companiesQuery = supabaseAdmin
-      .from('companies')
-      .select('bc_company_id, company_name, status, sales_rep_id, created_at')
-      .eq('store_hash', store_hash)
-      .eq('status', '1'); // active only
-    if (companies.length) companiesQuery = companiesQuery.in('bc_company_id', companies);
-
+    // Get orders in date range
     let ordersQuery = supabaseAdmin
       .from('b2b_orders')
-      .select('bc_order_id, company_id, total_inc_tax, created_at_bc, custom_status')
+      .select('bc_order_id, company_id, created_at_bc')
       .eq('store_hash', store_hash)
-      .neq('custom_status', 'Invoice Payment')
-      .not('created_at_bc', 'is', null)
-      .order('created_at_bc', { ascending: true });
+      .neq('custom_status', 'Invoice Payment');
+    if (dateFrom) ordersQuery = ordersQuery.gte('created_at_bc', dateFrom);
+    if (dateTo) ordersQuery = ordersQuery.lte('created_at_bc', dateTo + 'T23:59:59');
     if (companies.length) ordersQuery = ordersQuery.in('company_id', companies);
 
-    const [
-      { data: companiesList },
-      { data: orders },
-      { data: repsList },
-    ] = await Promise.all([
-      companiesQuery,
-      ordersQuery,
-      supabaseAdmin.from('sales_reps').select('bc_rep_id, first_name, last_name').eq('store_hash', store_hash),
-    ]);
+    const { data: orders } = await ordersQuery;
+    const orderIds = orders?.map(o => o.bc_order_id) || [];
+    const orderDateMap = {};
+    orders?.forEach(o => { orderDateMap[o.bc_order_id] = o.created_at_bc; });
 
-    const repMap = {};
-    repsList?.forEach(r => { repMap[r.bc_rep_id] = `${r.first_name} ${r.last_name}`.trim(); });
+    if (orderIds.length === 0) {
+      return NextResponse.json({ scorecards: { totalSkus: 0, totalRevenue: 0, totalQuantity: 0 }, products: [] });
+    }
 
-    // Group orders by company
-    const ordersByCompany = {};
-    orders?.forEach(o => {
-      if (!ordersByCompany[o.company_id]) ordersByCompany[o.company_id] = [];
-      ordersByCompany[o.company_id].push(o);
+    // Get line items for those orders
+    const { data: lineItems } = await supabaseAdmin
+      .from('order_line_items')
+      .select('bc_order_id, product_id, sku, product_name, quantity, base_price, line_total')
+      .eq('store_hash', store_hash)
+      .in('bc_order_id', orderIds);
+
+    // Get product catalog for brand, category, custom fields
+    const productIds = [...new Set(lineItems?.map(i => i.product_id).filter(Boolean))];
+    const { data: productCatalog } = productIds.length > 0
+      ? await supabaseAdmin
+          .from('products')
+          .select('bc_product_id, brand, category, custom_fields')
+          .eq('store_hash', store_hash)
+          .in('bc_product_id', productIds)
+      : { data: [] };
+
+    const catalogMap = {};
+    productCatalog?.forEach(p => { catalogMap[p.bc_product_id] = p; });
+
+    // Aggregate by SKU
+    const skuMap = {};
+    lineItems?.forEach(item => {
+      const sku = item.sku || item.product_name || 'Unknown';
+      if (!skuMap[sku]) {
+        const catalog = item.product_id ? catalogMap[item.product_id] : null;
+        skuMap[sku] = {
+          sku,
+          product_name: item.product_name || sku,
+          product_id: item.product_id,
+          brand: catalog?.brand || null,
+          category: catalog?.category || null,
+          custom_fields: catalog?.custom_fields || {},
+          total_quantity: 0,
+          total_revenue: 0,
+          order_count: new Set(),
+          last_order_date: null,
+        };
+      }
+      skuMap[sku].total_quantity += parseInt(item.quantity || 0);
+      skuMap[sku].total_revenue += parseFloat(item.line_total || 0);
+      skuMap[sku].order_count.add(item.bc_order_id);
+
+      const orderDate = orderDateMap[item.bc_order_id];
+      if (orderDate && (!skuMap[sku].last_order_date || orderDate > skuMap[sku].last_order_date)) {
+        skuMap[sku].last_order_date = orderDate;
+      }
     });
 
-    const today = new Date();
+    const products = Object.values(skuMap)
+      .map(p => ({
+        ...p,
+        order_count: p.order_count.size,
+        total_revenue: Math.round(p.total_revenue * 100) / 100,
+        avg_order_value: p.order_count.size > 0 ? Math.round(p.total_revenue / p.order_count.size * 100) / 100 : 0,
+      }))
+      .sort((a, b) => b.total_revenue - a.total_revenue)
+      .slice(0, limit);
 
-    const rows = (companiesList || []).map(company => {
-      const companyOrders = ordersByCompany[company.bc_company_id] || [];
-      const sortedOrders = companyOrders.sort((a, b) => new Date(a.created_at_bc) - new Date(b.created_at_bc));
+    const totalRevenue = Object.values(skuMap).reduce((s, p) => s + p.total_revenue, 0);
+    const totalQuantity = Object.values(skuMap).reduce((s, p) => s + p.total_quantity, 0);
 
-      // Account age in days
-      const accountAge = company.created_at
-        ? Math.floor((today - new Date(company.created_at)) / 86400000)
-        : null;
-
-      // First and last order dates
-      const firstOrder = sortedOrders.length > 0 ? sortedOrders[0].created_at_bc : null;
-      const lastOrder = sortedOrders.length > 0 ? sortedOrders[sortedOrders.length - 1].created_at_bc : null;
-
-      // Days since last order
-      const daysSinceLastOrder = lastOrder
-        ? Math.floor((today - new Date(lastOrder)) / 86400000)
-        : null;
-
-      // Average days between orders
-      let avgDaysBetweenOrders = null;
-      if (sortedOrders.length >= 2) {
-        const gaps = [];
-        for (let i = 1; i < sortedOrders.length; i++) {
-          const gap = Math.floor(
-            (new Date(sortedOrders[i].created_at_bc) - new Date(sortedOrders[i - 1].created_at_bc)) / 86400000
-          );
-          if (gap > 0) gaps.push(gap);
-        }
-        if (gaps.length > 0) {
-          avgDaysBetweenOrders = Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length);
-        }
-      }
-
-      // Total revenue
-      const totalRevenue = companyOrders.reduce((sum, o) => sum + (parseFloat(o.total_inc_tax) || 0), 0);
-
-      // Health score calculation (0-100)
-      let score = 0;
-      let scoreFactors = [];
-
-      // Order recency (30 pts) — ordered in last 30/60/90 days
-      if (daysSinceLastOrder !== null) {
-        if (daysSinceLastOrder <= 30) { score += 30; scoreFactors.push({ label: 'Ordered recently', pts: 30 }); }
-        else if (daysSinceLastOrder <= 60) { score += 20; scoreFactors.push({ label: 'Ordered within 60 days', pts: 20 }); }
-        else if (daysSinceLastOrder <= 90) { score += 10; scoreFactors.push({ label: 'Ordered within 90 days', pts: 10 }); }
-        else { scoreFactors.push({ label: 'No recent orders', pts: 0 }); }
-      }
-
-      // Order frequency (25 pts) — how regularly they order
-      if (avgDaysBetweenOrders !== null) {
-        if (avgDaysBetweenOrders <= 30) { score += 25; scoreFactors.push({ label: 'Orders frequently', pts: 25 }); }
-        else if (avgDaysBetweenOrders <= 60) { score += 18; scoreFactors.push({ label: 'Orders regularly', pts: 18 }); }
-        else if (avgDaysBetweenOrders <= 90) { score += 10; scoreFactors.push({ label: 'Orders occasionally', pts: 10 }); }
-        else { score += 5; scoreFactors.push({ label: 'Infrequent orders', pts: 5 }); }
-      }
-
-      // Order volume (25 pts) — total number of orders
-      if (companyOrders.length >= 20) { score += 25; scoreFactors.push({ label: '20+ orders', pts: 25 }); }
-      else if (companyOrders.length >= 10) { score += 18; scoreFactors.push({ label: '10+ orders', pts: 18 }); }
-      else if (companyOrders.length >= 5) { score += 12; scoreFactors.push({ label: '5+ orders', pts: 12 }); }
-      else if (companyOrders.length >= 1) { score += 6; scoreFactors.push({ label: 'Has ordered', pts: 6 }); }
-      else { scoreFactors.push({ label: 'No orders yet', pts: 0 }); }
-
-      // Account longevity (20 pts) — how long they've been a customer
-      if (accountAge !== null) {
-        if (accountAge >= 365) { score += 20; scoreFactors.push({ label: '1+ year customer', pts: 20 }); }
-        else if (accountAge >= 180) { score += 15; scoreFactors.push({ label: '6+ month customer', pts: 15 }); }
-        else if (accountAge >= 90) { score += 10; scoreFactors.push({ label: '3+ month customer', pts: 10 }); }
-        else { score += 5; scoreFactors.push({ label: 'New customer', pts: 5 }); }
-      }
-
-      // Health tier
-      let tier, tierColor;
-      if (score >= 80) { tier = 'Excellent'; tierColor = 'green'; }
-      else if (score >= 60) { tier = 'Good'; tierColor = 'blue'; }
-      else if (score >= 40) { tier = 'Fair'; tierColor = 'yellow'; }
-      else { tier = 'At Risk'; tierColor = 'red'; }
-
-      return {
-        company_id: company.bc_company_id,
-        company_name: company.company_name,
-        sales_rep_name: company.sales_rep_id ? repMap[company.sales_rep_id] || null : null,
-        health_score: score,
-        tier,
-        tier_color: tierColor,
-        account_age_days: accountAge,
-        total_orders: companyOrders.length,
-        total_revenue: Math.round(totalRevenue),
-        first_order_date: firstOrder,
-        last_order_date: lastOrder,
-        days_since_last_order: daysSinceLastOrder,
-        avg_days_between_orders: avgDaysBetweenOrders,
-        score_factors: scoreFactors,
-      };
+    return NextResponse.json({
+      scorecards: {
+        totalSkus: Object.keys(skuMap).length,
+        totalRevenue: Math.round(totalRevenue),
+        totalQuantity,
+        topSku: products[0]?.sku || null,
+        topSkuRevenue: products[0]?.total_revenue || 0,
+      },
+      products,
     });
-
-    // Sort by health score ascending (worst first)
-    rows.sort((a, b) => a.health_score - b.health_score);
-
-    const scorecards = {
-      total: rows.length,
-      excellent: rows.filter(r => r.tier === 'Excellent').length,
-      good: rows.filter(r => r.tier === 'Good').length,
-      fair: rows.filter(r => r.tier === 'Fair').length,
-      atRisk: rows.filter(r => r.tier === 'At Risk').length,
-      avgScore: rows.length > 0 ? Math.round(rows.reduce((s, r) => s + r.health_score, 0) / rows.length) : 0,
-    };
-
-    return NextResponse.json({ scorecards, companies: rows });
 
   } catch (err) {
-    console.error('Health score error:', err);
+    console.error('Products report error:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
