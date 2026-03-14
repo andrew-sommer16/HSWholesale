@@ -5,11 +5,8 @@ export async function POST(request) {
   const { email, password } = await request.json();
 
   try {
-    // Use anon key client for signInWithPassword
-    const { data: authData, error: authError } = await supabaseAuth.auth.signInWithPassword({
-      email,
-      password,
-    });
+    console.log('SUPABASE_URL:', process.env.NEXT_PUBLIC_SUPABASE_URL?.slice(0, 30));
+    console.log('ANON_KEY exists:', !!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
     if (authError) {
       console.log('Auth error full:', JSON.stringify(authError, null, 2));
