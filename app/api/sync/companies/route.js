@@ -53,7 +53,6 @@ export async function POST(request) {
       });
 
       if (unique.length > 0) {
-        // Fetch extra details for each company in batches of 10
         const BATCH_SIZE = 10;
         for (let i = 0; i < unique.length; i += BATCH_SIZE) {
           const batch = unique.slice(i, i + BATCH_SIZE);
@@ -61,28 +60,36 @@ export async function POST(request) {
             let customFields = {};
             let parentCompanyId = null;
             let parentCompanyName = null;
-            let primaryEmail = null;
+            let primaryEmail = c.companyEmail || null;
+            let createdAtBc = c.createdAt ? new Date(c.createdAt * 1000).toISOString() : null;
 
             try {
               const { data: detail } = await api.get(`/companies/${c.companyId}`);
               const info = detail?.data;
               if (info) {
-                // Custom fields
-                if (info.extraFields || info.customFields) {
-                  const fields = info.extraFields || info.customFields || [];
+                // Created at from detail
+                if (info.createdAt) createdAtBc = new Date(info.createdAt * 1000).toISOString();
+
+                // Primary email
+                primaryEmail = info.companyEmail || info.primaryEmail || primaryEmail;
+
+                // Parent company
+                if (info.parentCompany?.companyId) {
+                  parentCompanyId = String(info.parentCompany.companyId);
+                  parentCompanyName = info.parentCompany.companyName || null;
+                }
+
+                // Custom fields — try multiple field names BC uses
+                const fields = info.extraFields || info.customFields || info.companyExtraFields || [];
+                if (Array.isArray(fields)) {
                   fields.forEach(f => {
-                    if (f.fieldName && f.fieldValue) {
-                      customFields[f.fieldName] = f.fieldValue;
+                    const name = f.fieldName || f.name || f.label;
+                    const value = f.fieldValue || f.value;
+                    if (name && value !== undefined && value !== null && value !== '') {
+                      customFields[name] = String(value);
                     }
                   });
                 }
-                // Parent company
-                if (info.parentCompany) {
-                  parentCompanyId = info.parentCompany.id ? String(info.parentCompany.id) : null;
-                  parentCompanyName = info.parentCompany.name || null;
-                }
-                // Primary email
-                primaryEmail = info.companyEmail || info.primaryEmail || null;
               }
             } catch (e) {
               console.error(`Failed to fetch company detail for ${c.companyId}:`, e.message);
@@ -100,6 +107,7 @@ export async function POST(request) {
                 parent_company_id: parentCompanyId,
                 parent_company_name: parentCompanyName,
                 primary_email: primaryEmail,
+                created_at_bc: createdAtBc,
                 updated_at: new Date().toISOString(),
               }, { onConflict: 'store_hash,bc_company_id' });
 

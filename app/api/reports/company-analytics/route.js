@@ -48,7 +48,7 @@ export async function GET(request) {
     // Fetch all companies
     let companiesQuery = supabaseAdmin
       .from('companies')
-      .select('bc_company_id, company_name, status, sales_rep_id, customer_group_name, parent_company_name, primary_email, custom_fields, created_at')
+      .select('bc_company_id, company_name, status, sales_rep_id, customer_group_name, parent_company_name, primary_email, custom_fields, created_at, created_at_bc')
       .eq('store_hash', store_hash)
       ;
     if (companies.length) companiesQuery = companiesQuery.in('bc_company_id', companies);
@@ -124,8 +124,8 @@ export async function GET(request) {
       const companyOrders = (ordersByCompany[company.bc_company_id] || [])
         .sort((a, b) => new Date(a.created_at_bc) - new Date(b.created_at_bc));
 
-      const accountAge = company.created_at
-        ? Math.floor((today - new Date(company.created_at)) / 86400000)
+      const accountAge = company.created_at_bc || company.created_at
+        ? Math.floor((today - new Date(company.created_at_bc || company.created_at)) / 86400000)
         : null;
 
       const firstOrder = companyOrders.length > 0 ? companyOrders[0].created_at_bc : null;
