@@ -66,8 +66,9 @@ export async function POST(request) {
             try {
               const { data: detail } = await api.get(`/companies/${c.companyId}`);
               const info = detail?.data;
+
               if (info) {
-                // Created at from detail
+                // Created at
                 if (info.createdAt) createdAtBc = new Date(info.createdAt * 1000).toISOString();
 
                 // Primary email
@@ -79,14 +80,27 @@ export async function POST(request) {
                   parentCompanyName = info.parentCompany.companyName || null;
                 }
 
-                // Custom fields — try multiple field names BC uses
-                const fields = info.extraFields || info.customFields || info.companyExtraFields || [];
-                if (Array.isArray(fields)) {
-                  fields.forEach(f => {
-                    const name = f.fieldName || f.name || f.label;
-                    const value = f.fieldValue || f.value;
-                    if (name && value !== undefined && value !== null && value !== '') {
+                // Extra fields — BC B2B Edition uses extraFields array
+                const extraFields = info.extraFields || [];
+                if (Array.isArray(extraFields)) {
+                  extraFields.forEach(f => {
+                    // BC extra fields use labelName/fieldValue or fieldName/fieldValue
+                    const name = f.labelName || f.fieldName || f.name;
+                    const value = f.fieldValue !== undefined ? f.fieldValue : f.value;
+                    if (name && value !== null && value !== undefined && value !== '') {
                       customFields[name] = String(value);
+                    }
+                  });
+                }
+
+                // Also check for addressExtraFields at company level
+                const addressFields = info.addressExtraFields || [];
+                if (Array.isArray(addressFields)) {
+                  addressFields.forEach(f => {
+                    const name = f.labelName || f.fieldName || f.name;
+                    const value = f.fieldValue !== undefined ? f.fieldValue : f.value;
+                    if (name && value !== null && value !== undefined && value !== '') {
+                      customFields[`Address: ${name}`] = String(value);
                     }
                   });
                 }
