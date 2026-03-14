@@ -46,28 +46,40 @@ export async function POST(request) {
         break;
       }
 
-      // Fetch line items for each order in parallel batches of 10
+      // Skip Invoice Payment orders
+      const realOrders = orders.filter(o => 
+        o.status !== 'Invoice Payment' && 
+        !o.custom_status?.includes('Invoice Payment')
+      );
+
       const BATCH_SIZE = 10;
-      for (let i = 0; i < orders.length; i += BATCH_SIZE) {
-        const batch = orders.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < realOrders.length; i += BATCH_SIZE) {
+        const batch = realOrders.slice(i, i + BATCH_SIZE);
         await Promise.all(batch.map(async (order) => {
           try {
             const { data: products } = await api.get(`/v2/orders/${order.id}/products`);
             if (!products || products.length === 0) return;
 
-            const lineItems = products.map(p => ({
-              store_hash,
-              bc_order_id: String(order.id),
-              product_id: p.product_id ? String(p.product_id) : null,
-              variant_id: p.variant_id ? String(p.variant_id) : null,
-              sku: p.sku || '',
-              product_name: p.name || '',
-              quantity: parseInt(p.quantity || 0),
-              base_price: parseFloat(p.base_price_inc_tax || p.price_inc_tax || 0),
-              line_total: parseFloat(p.base_price_inc_tax || 0) * parseInt(p.quantity || 0),
-            }));
+            const lineItems = products
+              .filter(p => p.name !== 'Invoice Payment')
+              .map(p => {
+                const qty = parseInt(p.quantity || 0);
+                const price = parseFloat(p.price_inc_tax || p.base_price_inc_tax || p.base_price_ex_tax || 0);
+                return {
+                  store_hash,
+                  bc_order_id: String(order.id),
+                  product_id: p.product_id ? String(p.product_id) : null,
+                  variant_id: p.variant_id ? String(p.variant_id) : null,
+                  sku: p.sku || '',
+                  product_name: p.name || '',
+                  quantity: qty,
+                  base_price: price,
+                  line_total: Math.round(price * qty * 100) / 100,
+                };
+              });
 
-            // Delete existing line items for this order then reinsert
+            if (lineItems.length === 0) return;
+
             await supabase
               .from('order_line_items')
               .delete()
