@@ -50,13 +50,9 @@ export async function GET(request) {
       .from('companies')
       .select('bc_company_id, company_name, status, sales_rep_id, customer_group_name, parent_company_name, primary_email, custom_fields, created_at')
       .eq('store_hash', store_hash)
+      ;
     if (companies.length) companiesQuery = companiesQuery.in('bc_company_id', companies);
     const { data: allCompanies } = await companiesQuery;
-
-    const { data: allCompanies } = await companiesQuery;
-    console.log('allCompanies count:', allCompanies?.length);
-    console.log('store_hash:', store_hash);
-    console.log('companies filter:', companies);
 
     // Apply custom field filters
     let filteredCompanies = allCompanies || [];
