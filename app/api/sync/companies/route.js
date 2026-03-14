@@ -53,21 +53,60 @@ export async function POST(request) {
       });
 
       if (unique.length > 0) {
-        const companies = unique.map(c => ({
-          store_hash,
-          bc_company_id: String(c.companyId),
-          company_name: c.companyName,
-          status: String(c.companyStatus),
-          sales_rep_id: c.salesRepId ? String(c.salesRepId) : null,
-          updated_at: new Date().toISOString(),
-        }));
+        // Fetch extra details for each company in batches of 10
+        const BATCH_SIZE = 10;
+        for (let i = 0; i < unique.length; i += BATCH_SIZE) {
+          const batch = unique.slice(i, i + BATCH_SIZE);
+          await Promise.all(batch.map(async (c) => {
+            let customFields = {};
+            let parentCompanyId = null;
+            let parentCompanyName = null;
+            let primaryEmail = null;
 
-        const { error } = await supabase
-          .from('companies')
-          .upsert(companies, { onConflict: 'store_hash,bc_company_id' });
+            try {
+              const { data: detail } = await api.get(`/companies/${c.companyId}`);
+              const info = detail?.data;
+              if (info) {
+                // Custom fields
+                if (info.extraFields || info.customFields) {
+                  const fields = info.extraFields || info.customFields || [];
+                  fields.forEach(f => {
+                    if (f.fieldName && f.fieldValue) {
+                      customFields[f.fieldName] = f.fieldValue;
+                    }
+                  });
+                }
+                // Parent company
+                if (info.parentCompany) {
+                  parentCompanyId = info.parentCompany.id ? String(info.parentCompany.id) : null;
+                  parentCompanyName = info.parentCompany.name || null;
+                }
+                // Primary email
+                primaryEmail = info.companyEmail || info.primaryEmail || null;
+              }
+            } catch (e) {
+              console.error(`Failed to fetch company detail for ${c.companyId}:`, e.message);
+            }
 
-        if (error) console.error('Companies upsert error:', error);
-        else synced += unique.length;
+            const { error } = await supabase
+              .from('companies')
+              .upsert({
+                store_hash,
+                bc_company_id: String(c.companyId),
+                company_name: c.companyName,
+                status: String(c.companyStatus),
+                sales_rep_id: c.salesRepId ? String(c.salesRepId) : null,
+                custom_fields: customFields,
+                parent_company_id: parentCompanyId,
+                parent_company_name: parentCompanyName,
+                primary_email: primaryEmail,
+                updated_at: new Date().toISOString(),
+              }, { onConflict: 'store_hash,bc_company_id' });
+
+            if (error) console.error('Company upsert error:', error);
+            else synced++;
+          }));
+        }
       }
 
       const totalCount = data?.meta?.pagination?.totalCount || 0;

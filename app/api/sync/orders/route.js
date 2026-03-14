@@ -58,6 +58,7 @@ export async function POST(request) {
         po_number: o.po_number || null,
         date_created: o.date_created,
         date_modified: o.date_modified,
+        date_shipped: o.date_shipped || null,
       }));
 
       const { error } = await supabase
