@@ -1,0 +1,259 @@
+'use client';
+import { useEffect, useState } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import FilterPanel from '@/components/FilterPanel';
+import FilterPills from '@/components/FilterPills';
+import { useFilters, formatDateRange } from '@/lib/useFilters';
+import { useCurrentUser } from '@/lib/useCurrentUser';
+import { exportToCsv } from '@/lib/exportCsv';
+import { Suspense } from 'react';
+
+const fmt = (n) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n || 0);
+const COLORS = ['#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#ec4899', '#f43f5e', '#f97316', '#eab308'];
+
+const CSV_COLUMNS = [
+  { key: 'sku', label: 'SKU' },
+  { key: 'product_name', label: 'Product Name' },
+  { key: 'brand', label: 'Brand' },
+  { key: 'category', label: 'Category' },
+  { key: 'total_quantity', label: 'Total Qty Sold' },
+  { key: 'total_revenue', label: 'Total Revenue' },
+  { key: 'order_count', label: 'Orders' },
+  { key: 'avg_order_value', label: 'Avg Order Value' },
+  { key: 'last_order_date', label: 'Last Order Date', format: v => v ? new Date(v).toLocaleDateString() : '—' },
+];
+
+const SkeletonCard = () => (
+  <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm animate-pulse">
+    <div className="h-2.5 bg-gray-200 rounded w-1/2 mb-3" />
+    <div className="h-7 bg-gray-200 rounded w-3/4 mb-2" />
+    <div className="h-2 bg-gray-100 rounded w-1/3" />
+  </div>
+);
+
+const SkeletonRow = () => (
+  <tr className="animate-pulse">
+    {['30%', '40%', '25%', '25%', '20%', '25%', '20%', '25%', '30%'].map((w, i) => (
+      <td key={i} className="px-6 py-4"><div className="h-3 bg-gray-100 rounded" style={{ width: w }} /></td>
+    ))}
+  </tr>
+);
+
+function ProductsPageInner() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [filterOptions, setFilterOptions] = useState({});
+  const [search, setSearch] = useState('');
+  const [topX, setTopX] = useState(25);
+  const [sort, setSort] = useState({ key: 'total_revenue', dir: 'desc' });
+  const { user } = useCurrentUser();
+  const { filters, pendingFilters, updatePending, applyFilters, resetFilters, removeFilter, activeFilterCount, buildQueryString } = useFilters(
+    user?.role === 'rep' ? user?.bc_rep_id : null,
+    user?.store_hash
+  );
+
+  useEffect(() => {
+    if (!user?.store_hash) return;
+    fetch(`/api/reports/filter-options?store_hash=${user.store_hash}`).then(r => r.json()).then(setFilterOptions);
+  }, [user]);
+
+  useEffect(() => {
+    if (!user?.store_hash) return;
+    setLoading(true);
+    fetch(`/api/reports/products?${buildQueryString({ limit: topX })}`)
+      .then(r => r.json())
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [filters, user, topX]);
+
+  const s = data?.scorecards || {};
+  const allProducts = data?.products || [];
+
+  const filtered = allProducts
+    .filter(p =>
+      p.sku?.toLowerCase().includes(search.toLowerCase()) ||
+      p.product_name?.toLowerCase().includes(search.toLowerCase()) ||
+      p.brand?.toLowerCase().includes(search.toLowerCase()) ||
+      p.category?.toLowerCase().includes(search.toLowerCase())
+    )
+    .sort((a, b) => {
+      const mul = sort.dir === 'asc' ? 1 : -1;
+      const av = a[sort.key] ?? 0;
+      const bv = b[sort.key] ?? 0;
+      return (av > bv ? 1 : av < bv ? -1 : 0) * mul;
+    });
+
+  const chartData = [...allProducts].sort((a, b) => b.total_revenue - a.total_revenue).slice(0, 10);
+
+  const handleSort = (key) => setSort(s => ({ key, dir: s.key === key && s.dir === 'desc' ? 'asc' : 'desc' }));
+  const SortIcon = ({ col }) => {
+    if (sort.key !== col) return <span className="text-gray-300 ml-1">↕</span>;
+    return <span className="text-blue-500 ml-1">{sort.dir === 'asc' ? '↑' : '↓'}</span>;
+  };
+
+  return (
+    <div className="p-8 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Product Performance</h1>
+          <p className="text-gray-500 mt-1">Top SKUs by revenue, quantity, and order frequency</p>
+          <p className="text-xs text-gray-400 mt-0.5">{formatDateRange(filters)}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => exportToCsv('product-performance.csv', filtered, CSV_COLUMNS)}
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium border border-gray-200 rounded-lg bg-white hover:bg-gray-50 transition-colors">
+            ⬇ Export CSV
+          </button>
+          <button onClick={() => setFilterOpen(true)} className="flex items-center gap-2 px-4 py-2 text-sm font-medium border border-gray-200 rounded-lg bg-white hover:bg-gray-50 transition-colors">
+            <span>⚙️</span><span>Filters</span>
+            {activeFilterCount > 0 && <span className="px-1.5 py-0.5 bg-blue-600 text-white text-xs rounded-full">{activeFilterCount}</span>}
+          </button>
+        </div>
+      </div>
+
+      <FilterPills filters={filters} filterOptions={filterOptions} onRemove={removeFilter} onReset={resetFilters} />
+
+      {/* Scorecards */}
+      <div className="grid grid-cols-5 gap-4">
+        {loading ? (
+          [...Array(5)].map((_, i) => <SkeletonCard key={i} />)
+        ) : (
+          <>
+            <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Unique SKUs</p>
+              <p className="text-2xl font-bold mt-1 text-gray-900">{s.totalSkus || 0}</p>
+            </div>
+            <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Total Revenue</p>
+              <p className="text-2xl font-bold mt-1 text-blue-600">{fmt(s.totalRevenue)}</p>
+            </div>
+            <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Total Units Sold</p>
+              <p className="text-2xl font-bold mt-1 text-indigo-600">{(s.totalQuantity || 0).toLocaleString()}</p>
+            </div>
+            <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm col-span-2">
+              <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Top SKU</p>
+              <p className="text-lg font-bold mt-1 text-gray-900 truncate">{s.topSku || '—'}</p>
+              <p className="text-xs text-gray-400 mt-0.5">{fmt(s.topSkuRevenue)} revenue</p>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Chart */}
+      {loading ? (
+        <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm animate-pulse">
+          <div className="h-3 bg-gray-200 rounded w-40 mb-6" />
+          <div className="h-48 bg-gray-100 rounded" />
+        </div>
+      ) : chartData.length > 0 && (
+        <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
+          <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-widest">Top 10 SKUs by Revenue</h2>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+              <XAxis dataKey="sku" tick={{ fontSize: 11, fill: '#9ca3af' }} tickFormatter={v => v.length > 12 ? v.slice(0, 12) + '…' : v} />
+              <YAxis tick={{ fontSize: 11, fill: '#9ca3af' }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+              <Tooltip formatter={(v, n) => [fmt(v), 'Revenue']} contentStyle={{ borderRadius: '8px', border: '1px solid #e5e7eb', fontSize: 12 }} />
+              <Bar dataKey="total_revenue" radius={[4, 4, 0, 0]}>
+                {chartData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Table */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-widest whitespace-nowrap">Top SKUs</h2>
+            <select value={topX} onChange={e => setTopX(Number(e.target.value))}
+              className="text-xs border border-gray-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value={25}>Top 25</option>
+              <option value={50}>Top 50</option>
+              <option value={100}>Top 100</option>
+              <option value={500}>All</option>
+            </select>
+          </div>
+          <input type="text" placeholder="Search SKU, product, brand..." value={search} onChange={e => setSearch(e.target.value)}
+            className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 w-64 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                {[
+                  { key: 'sku', label: 'SKU' },
+                  { key: 'product_name', label: 'Product Name' },
+                  { key: 'brand', label: 'Brand' },
+                  { key: 'category', label: 'Category' },
+                  { key: 'total_quantity', label: 'Qty Sold' },
+                  { key: 'total_revenue', label: 'Revenue' },
+                  { key: 'order_count', label: 'Orders' },
+                  { key: 'avg_order_value', label: 'Avg Order' },
+                  { key: 'last_order_date', label: 'Last Order' },
+                ].map(col => (
+                  <th key={col.key} onClick={() => handleSort(col.key)}
+                    className="px-6 py-3 text-left cursor-pointer hover:text-gray-700 select-none whitespace-nowrap">
+                    {col.label}<SortIcon col={col.key} />
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {loading ? (
+                [...Array(10)].map((_, i) => <SkeletonRow key={i} />)
+              ) : (
+                <>
+                  {filtered.map((p, i) => (
+                    <tr key={p.sku} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-2">
+                          {i < 3 && (
+                            <span className="text-xs font-bold text-gray-400">#{i + 1}</span>
+                          )}
+                          <span className="font-mono text-xs text-gray-700">{p.sku || '—'}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 text-gray-900 max-w-xs truncate">{p.product_name || '—'}</td>
+                      <td className="px-6 py-4 text-gray-600">{p.brand || '—'}</td>
+                      <td className="px-6 py-4 text-gray-600">{p.category || '—'}</td>
+                      <td className="px-6 py-4 text-gray-700 font-medium">{p.total_quantity.toLocaleString()}</td>
+                      <td className="px-6 py-4 font-medium text-gray-900">{fmt(p.total_revenue)}</td>
+                      <td className="px-6 py-4 text-gray-600">{p.order_count}</td>
+                      <td className="px-6 py-4 text-gray-600">{fmt(p.avg_order_value)}</td>
+                      <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
+                        {p.last_order_date ? new Date(p.last_order_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                  {filtered.length === 0 && (
+                    <tr><td colSpan={9} className="px-6 py-16 text-center text-gray-400">
+                      {allProducts.length === 0 ? 'No product data — run a sync to load order line items' : 'No products match your search'}
+                    </td></tr>
+                  )}
+                </>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <FilterPanel open={filterOpen} onClose={() => setFilterOpen(false)} pendingFilters={pendingFilters}
+        updatePending={updatePending} applyFilters={applyFilters} resetFilters={resetFilters}
+        activeFilterCount={activeFilterCount} pageType="orders" filterOptions={filterOptions} />
+    </div>
+  );
+}
+
+export default function ProductsPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="text-gray-400 text-sm">Loading...</div></div>}>
+      <ProductsPageInner />
+    </Suspense>
+  );
+}
+
+export const dynamic = 'force-dynamic';

@@ -13,6 +13,8 @@ const navItems = [
   { href: '/dashboard/net-terms', label: 'Net Terms & Payments', icon: '💳' },
   { href: '/dashboard/orders', label: 'Orders', icon: '📦' },
   { href: '/dashboard/sales-reps', label: 'Sales Reps', icon: '👤' },
+  { href: '/dashboard/health-score', label: 'Customer Health', icon: '❤️' },
+  { href: '/dashboard/products', label: 'Product Performance', icon: '🏷️' },
   { href: '/dashboard/settings', label: 'Settings', icon: '⚙️' },
 ];
  

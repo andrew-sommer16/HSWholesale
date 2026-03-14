@@ -20,10 +20,10 @@ export async function POST(request) {
   const group1 = ['companies', 'customer-groups', 'sales-reps'];
 
   // Group 2 — parallel
-  const group2 = ['orders', 'b2b-orders', 'b2b-invoices', 'quotes', 'net-terms'];
+  const group2 = ['orders', 'b2b-orders', 'b2b-invoices', 'quotes', 'net-terms', 'products'];
 
-  // Group 3 — after group 2
-  const group3 = ['invoice-payments'];
+  // Group 3 — after group 2 (depends on orders and invoices)
+  const group3 = ['invoice-payments', 'order-line-items'];
 
   const results = {};
   let hasError = false;
