@@ -1,8 +1,10 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { useRouter, usePathname, useSearchParams } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { Suspense } from 'react';
+import { FilterProvider } from '@/lib/filterContext';
+import DateBar from '@/components/DateBar';
 
 const navItems = [
   { href: '/dashboard', label: 'Overview', icon: '📊' },
@@ -22,10 +24,9 @@ function timeAgo(dateStr) {
 
 export const dynamic = 'force-dynamic';
 
-export default function DashboardLayout({ children }) {
+function DashboardInner({ children }) {
   const router = useRouter();
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const [user, setUser] = useState(null);
   const [syncStatus, setSyncStatus] = useState(null);
   const [syncing, setSyncing] = useState(false);
@@ -84,9 +85,12 @@ export default function DashboardLayout({ children }) {
     return 'bg-red-400';
   };
 
+  const isSettingsPage = pathname === '/dashboard/settings';
+
   return (
     <div className="flex h-screen bg-gray-100">
-      <div className="w-64 bg-white shadow-sm flex flex-col">
+      {/* Sidebar */}
+      <div className="w-64 bg-white shadow-sm flex flex-col flex-shrink-0">
         <div className="p-6 border-b border-gray-200">
           <h1 className="text-lg font-bold text-gray-900">B2B Analytics</h1>
           <p className="text-xs text-gray-500 mt-1">BigCommerce B2B Edition</p>
@@ -147,11 +151,24 @@ export default function DashboardLayout({ children }) {
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto">
-        <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="text-gray-400 text-sm">Loading...</div></div>}>
-          {children}
-        </Suspense>
+      {/* Main content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Show DateBar on all pages except settings */}
+        {!isSettingsPage && <DateBar />}
+        <div className="flex-1 overflow-auto">
+          <Suspense fallback={<div className="flex items-center justify-center h-64"><div className="text-gray-400 text-sm">Loading...</div></div>}>
+            {children}
+          </Suspense>
+        </div>
       </div>
     </div>
+  );
+}
+
+export default function DashboardLayout({ children }) {
+  return (
+    <FilterProvider>
+      <DashboardInner>{children}</DashboardInner>
+    </FilterProvider>
   );
 }

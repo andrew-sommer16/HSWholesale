@@ -1,10 +1,8 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import FilterPanel from '@/components/FilterPanel';
-import FilterPills from '@/components/FilterPills';
-import { useFilters, formatDateRange } from '@/lib/useFilters';
 import { useCurrentUser } from '@/lib/useCurrentUser';
+import { useGlobalFilters } from '@/lib/filterContext';
 import { exportToCsv } from '@/lib/exportCsv';
 import { Suspense } from 'react';
 
@@ -27,7 +25,6 @@ const SkeletonCard = () => (
   <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm animate-pulse">
     <div className="h-2.5 bg-gray-200 rounded w-1/2 mb-3" />
     <div className="h-7 bg-gray-200 rounded w-3/4 mb-2" />
-    <div className="h-2 bg-gray-100 rounded w-1/3" />
   </div>
 );
 
@@ -42,43 +39,37 @@ const SkeletonRow = () => (
 function ProductsPageInner() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [filterOpen, setFilterOpen] = useState(false);
   const [cfFilterOpen, setCfFilterOpen] = useState(false);
-  const [filterOptions, setFilterOptions] = useState({});
   const [search, setSearch] = useState('');
   const [topX, setTopX] = useState(25);
   const [groupBy, setGroupBy] = useState('sku');
   const [sort, setSort] = useState({ key: 'total_revenue', dir: 'desc' });
   const [customFieldFilters, setCustomFieldFilters] = useState({});
   const { user } = useCurrentUser();
-  const { filters, pendingFilters, updatePending, applyFilters, resetFilters, removeFilter, activeFilterCount, buildQueryString } = useFilters(
-    user?.role === 'rep' ? user?.bc_rep_id : null,
-    user?.store_hash
-  );
+  const { dateFrom, dateTo, dateField } = useGlobalFilters();
 
-  useEffect(() => {
-    if (!user?.store_hash) return;
-    fetch(`/api/reports/filter-options?store_hash=${user.store_hash}`).then(r => r.json()).then(setFilterOptions);
-  }, [user]);
+  const buildQS = () => {
+    const params = new URLSearchParams();
+    params.set('store_hash', user.store_hash);
+    if (dateFrom) params.set('dateFrom', dateFrom);
+    if (dateTo) params.set('dateTo', dateTo);
+    params.set('dateField', dateField);
+    params.set('limit', topX);
+    params.set('groupBy', groupBy);
+    Object.entries(customFieldFilters).forEach(([key, values]) => {
+      if (values.length) params.set(`cf_${encodeURIComponent(key)}`, values.join(','));
+    });
+    return params.toString();
+  };
 
   useEffect(() => {
     if (!user?.store_hash) return;
     setLoading(true);
-
-    // Build custom field filter params
-    const cfParams = Object.entries(customFieldFilters)
-      .filter(([, values]) => values.length > 0)
-      .map(([key, values]) => `cf_${encodeURIComponent(key)}=${values.join(',')}`)
-      .join('&');
-
-    const qs = buildQueryString({ limit: topX, groupBy });
-    const url = `/api/reports/products?${qs}${cfParams ? '&' + cfParams : ''}`;
-
-    fetch(url)
+    fetch(`/api/reports/products?${buildQS()}`)
       .then(r => r.json())
       .then(d => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [filters, user, topX, groupBy, customFieldFilters]);
+  }, [user, dateFrom, dateTo, dateField, topX, groupBy, customFieldFilters]);
 
   const s = data?.scorecards || {};
   const allProducts = data?.products || [];
@@ -110,14 +101,10 @@ function ProductsPageInner() {
   const toggleCfFilter = (fieldName, value) => {
     setCustomFieldFilters(prev => {
       const current = prev[fieldName] || [];
-      const updated = current.includes(value)
-        ? current.filter(v => v !== value)
-        : [...current, value];
+      const updated = current.includes(value) ? current.filter(v => v !== value) : [...current, value];
       return { ...prev, [fieldName]: updated };
     });
   };
-
-  const clearCfFilters = () => setCustomFieldFilters({});
 
   return (
     <div className="p-8 space-y-6">
@@ -125,7 +112,6 @@ function ProductsPageInner() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Product Performance</h1>
           <p className="text-gray-500 mt-1">Top SKUs by revenue, quantity, and order frequency</p>
-          <p className="text-xs text-gray-400 mt-0.5">{formatDateRange(filters)}</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => exportToCsv('product-performance.csv', filtered, CSV_COLUMNS)}
@@ -134,30 +120,24 @@ function ProductsPageInner() {
           </button>
           <button onClick={() => setCfFilterOpen(!cfFilterOpen)}
             className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border rounded-lg transition-colors ${activeCfFilters > 0 ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 bg-white hover:bg-gray-50'}`}>
-            <span>🏷️</span><span>Custom Fields</span>
+            <span>🏷️</span><span>Product Fields</span>
             {activeCfFilters > 0 && <span className="px-1.5 py-0.5 bg-white text-blue-600 text-xs rounded-full font-bold">{activeCfFilters}</span>}
-          </button>
-          <button onClick={() => setFilterOpen(true)} className="flex items-center gap-2 px-4 py-2 text-sm font-medium border border-gray-200 rounded-lg bg-white hover:bg-gray-50 transition-colors">
-            <span>⚙️</span><span>Filters</span>
-            {activeFilterCount > 0 && <span className="px-1.5 py-0.5 bg-blue-600 text-white text-xs rounded-full">{activeFilterCount}</span>}
           </button>
         </div>
       </div>
 
-      <FilterPills filters={filters} filterOptions={filterOptions} onRemove={removeFilter} onReset={resetFilters} />
-
-      {/* Custom Field Filter Panel */}
+      {/* Product custom field filters */}
       {cfFilterOpen && Object.keys(customFieldOptions).length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-700">Filter by Custom Fields</h3>
+            <h3 className="text-sm font-semibold text-gray-700">Filter by Product Fields</h3>
             <div className="flex items-center gap-3">
               {activeCfFilters > 0 && (
-                <button onClick={clearCfFilters} className="text-xs text-red-500 hover:text-red-700 font-medium">
-                  Clear all filters
+                <button onClick={() => setCustomFieldFilters({})} className="text-xs text-red-500 hover:text-red-700 font-medium">
+                  Clear all
                 </button>
               )}
-              <button onClick={() => setCfFilterOpen(false)} className="text-xs text-gray-400 hover:text-gray-600">✕ Close</button>
+              <button onClick={() => setCfFilterOpen(false)} className="text-xs text-gray-400 hover:text-gray-600">✕</button>
             </div>
           </div>
           <div className="grid grid-cols-3 gap-6">
@@ -169,12 +149,8 @@ function ProductsPageInner() {
                     const isChecked = (customFieldFilters[fieldName] || []).includes(value);
                     return (
                       <label key={value} className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => toggleCfFilter(fieldName, value)}
-                          className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
+                        <input type="checkbox" checked={isChecked} onChange={() => toggleCfFilter(fieldName, value)}
+                          className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
                         <span className={`text-sm ${isChecked ? 'text-blue-700 font-medium' : 'text-gray-600'}`}>{value}</span>
                       </label>
                     );
@@ -188,9 +164,7 @@ function ProductsPageInner() {
 
       {/* Scorecards */}
       <div className="grid grid-cols-5 gap-4">
-        {loading ? (
-          [...Array(5)].map((_, i) => <SkeletonCard key={i} />)
-        ) : (
+        {loading ? [...Array(5)].map((_, i) => <SkeletonCard key={i} />) : (
           <>
             <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
               <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">{groupBy === 'sku' ? 'Unique SKUs' : 'Unique Products'}</p>
@@ -201,7 +175,7 @@ function ProductsPageInner() {
               <p className="text-2xl font-bold mt-1 text-blue-600">{fmt(s.totalRevenue)}</p>
             </div>
             <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm">
-              <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Total Units Sold</p>
+              <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Units Sold</p>
               <p className="text-2xl font-bold mt-1 text-indigo-600">{(s.totalQuantity || 0).toLocaleString()}</p>
             </div>
             <div className="bg-white rounded-xl p-5 border border-gray-100 shadow-sm col-span-2">
@@ -214,12 +188,7 @@ function ProductsPageInner() {
       </div>
 
       {/* Chart */}
-      {loading ? (
-        <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm animate-pulse">
-          <div className="h-3 bg-gray-200 rounded w-40 mb-6" />
-          <div className="h-48 bg-gray-100 rounded" />
-        </div>
-      ) : chartData.length > 0 && (
+      {!loading && chartData.length > 0 && (
         <div className="bg-white rounded-xl p-6 border border-gray-100 shadow-sm">
           <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-widest">Top 10 by Revenue</h2>
           <ResponsiveContainer width="100%" height={220}>
@@ -250,7 +219,6 @@ function ProductsPageInner() {
               <option value={100}>Top 100</option>
               <option value={500}>All</option>
             </select>
-            {/* Group By Toggle */}
             <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
               <button onClick={() => setGroupBy('sku')}
                 className={`px-3 py-1.5 transition-colors ${groupBy === 'sku' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
@@ -285,11 +253,8 @@ function ProductsPageInner() {
                     {col.label}<SortIcon col={col.key} />
                   </th>
                 ))}
-                {/* Dynamic custom field columns */}
                 {activeCfFilters > 0 && Object.keys(customFieldFilters).filter(k => customFieldFilters[k].length > 0).map(fieldName => (
-                  <th key={fieldName} className="px-6 py-3 text-left whitespace-nowrap text-gray-500">
-                    {fieldName}
-                  </th>
+                  <th key={fieldName} className="px-6 py-3 text-left whitespace-nowrap text-gray-500">{fieldName}</th>
                 ))}
               </tr>
             </thead>
@@ -319,11 +284,8 @@ function ProductsPageInner() {
                       <td className="px-6 py-4 text-gray-600 whitespace-nowrap">
                         {p.last_order_date ? new Date(p.last_order_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
                       </td>
-                      {/* Dynamic custom field values */}
                       {activeCfFilters > 0 && Object.keys(customFieldFilters).filter(k => customFieldFilters[k].length > 0).map(fieldName => (
-                        <td key={fieldName} className="px-6 py-4 text-gray-600">
-                          {p.custom_fields?.[fieldName] || '—'}
-                        </td>
+                        <td key={fieldName} className="px-6 py-4 text-gray-600">{p.custom_fields?.[fieldName] || '—'}</td>
                       ))}
                     </tr>
                   ))}
@@ -338,10 +300,6 @@ function ProductsPageInner() {
           </table>
         </div>
       </div>
-
-      <FilterPanel open={filterOpen} onClose={() => setFilterOpen(false)} pendingFilters={pendingFilters}
-        updatePending={updatePending} applyFilters={applyFilters} resetFilters={resetFilters}
-        activeFilterCount={activeFilterCount} pageType="orders" filterOptions={filterOptions} />
     </div>
   );
 }
@@ -353,5 +311,4 @@ export default function ProductsPage() {
     </Suspense>
   );
 }
-
 export const dynamic = 'force-dynamic';

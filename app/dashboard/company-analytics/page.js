@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useCurrentUser } from '@/lib/useCurrentUser';
+import { useGlobalFilters } from '@/lib/filterContext';
 import { exportToCsv } from '@/lib/exportCsv';
 import Pagination from '@/components/Pagination';
 import { Suspense } from 'react';
@@ -14,21 +15,11 @@ const TIER_STYLES = {
   'At Risk': 'bg-red-100 text-red-700',
 };
 
-const DATE_PRESETS = [
-  { label: 'Last 30 days', days: 30 },
-  { label: 'Last 90 days', days: 90 },
-  { label: 'Last 6 months', days: 180 },
-  { label: 'Last 12 months', days: 365 },
-  { label: 'This year', year: 'current' },
-  { label: 'Last year', year: 'last' },
-];
-
 const CSV_COLUMNS = [
   { key: 'company_name', label: 'Company' },
   { key: 'primary_email', label: 'Primary Email' },
   { key: 'parent_company_name', label: 'Parent Company' },
   { key: 'customer_group_name', label: 'Customer Group' },
-  { key: 'sales_rep_name', label: 'Sales Rep' },
   { key: 'health_score', label: 'Health Score' },
   { key: 'tier', label: 'Tier' },
   { key: 'account_age_days', label: 'Account Age (Days)' },
@@ -81,39 +72,18 @@ function StatusDistribution({ dist }) {
   );
 }
 
-function getPresetDates(preset) {
-  const today = new Date();
-  const pad = (d) => d.toISOString().split('T')[0];
-  if (preset.days) {
-    const from = new Date(today);
-    from.setDate(from.getDate() - preset.days);
-    return { dateFrom: pad(from), dateTo: pad(today) };
-  }
-  if (preset.year === 'current') {
-    return { dateFrom: `${today.getFullYear()}-01-01`, dateTo: pad(today) };
-  }
-  if (preset.year === 'last') {
-    const y = today.getFullYear() - 1;
-    return { dateFrom: `${y}-01-01`, dateTo: `${y}-12-31` };
-  }
-  return { dateFrom: '', dateTo: '' };
-}
-
 function CompanyAnalyticsInner() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
-  const [dateField, setDateField] = useState('created');
   const [tierFilter, setTierFilter] = useState('all');
   const [extraFieldFilters, setExtraFieldFilters] = useState({});
   const [sort, setSort] = useState({ key: 'health_score', dir: 'asc' });
   const [page, setPage] = useState(1);
   const [expandedRow, setExpandedRow] = useState(null);
-  const [showPresets, setShowPresets] = useState(false);
   const limit = 25;
   const { user } = useCurrentUser();
+  const { dateFrom, dateTo, dateField } = useGlobalFilters();
 
   const buildQS = () => {
     const params = new URLSearchParams();
@@ -145,6 +115,7 @@ function CompanyAnalyticsInner() {
   const pagination = data?.pagination || {};
   const allCompanies = data?.companies || [];
   const extraFieldOptions = data?.extraFieldOptions || {};
+  const activeExtraFilters = Object.values(extraFieldFilters).flat().length;
 
   const filtered = allCompanies
     .filter(c => tierFilter === 'all' || c.tier === tierFilter)
@@ -175,15 +146,6 @@ function CompanyAnalyticsInner() {
     });
   };
 
-  const activeExtraFilters = Object.values(extraFieldFilters).flat().length;
-
-  const applyPreset = (preset) => {
-    const { dateFrom: f, dateTo: t } = getPresetDates(preset);
-    setDateFrom(f);
-    setDateTo(t);
-    setShowPresets(false);
-  };
-
   return (
     <div className="p-8 space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
@@ -191,49 +153,10 @@ function CompanyAnalyticsInner() {
           <h1 className="text-2xl font-bold text-gray-900">Company Analytics</h1>
           <p className="text-gray-500 mt-1">Account health, order history, and distribution</p>
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          {/* Date field toggle */}
-          <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
-            <button onClick={() => setDateField('created')}
-              className={`px-3 py-1.5 transition-colors ${dateField === 'created' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
-              Order Date
-            </button>
-            <button onClick={() => setDateField('shipped')}
-              className={`px-3 py-1.5 transition-colors ${dateField === 'shipped' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
-              Ship Date
-            </button>
-          </div>
-          {/* Date presets */}
-          <div className="relative">
-            <button onClick={() => setShowPresets(!showPresets)}
-              className="text-xs font-medium px-3 py-1.5 border border-gray-200 rounded-lg bg-white hover:bg-gray-50 text-gray-600">
-              Presets ▾
-            </button>
-            {showPresets && (
-              <div className="absolute right-0 top-8 bg-white border border-gray-200 rounded-lg shadow-lg z-10 w-40">
-                {DATE_PRESETS.map(p => (
-                  <button key={p.label} onClick={() => applyPreset(p)}
-                    className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg">
-                    {p.label}
-                  </button>
-                ))}
-                <button onClick={() => { setDateFrom(''); setDateTo(''); setShowPresets(false); }}
-                  className="w-full text-left px-4 py-2 text-xs text-red-500 hover:bg-gray-50 border-t border-gray-100">
-                  Clear dates
-                </button>
-              </div>
-            )}
-          </div>
-          <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
-            className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          <span className="text-gray-400 text-sm">to</span>
-          <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
-            className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          <button onClick={() => exportToCsv('company-analytics.csv', filtered, CSV_COLUMNS)}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium border border-gray-200 rounded-lg bg-white hover:bg-gray-50">
-            ⬇ Export CSV
-          </button>
-        </div>
+        <button onClick={() => exportToCsv('company-analytics.csv', filtered, CSV_COLUMNS)}
+          className="flex items-center gap-2 px-4 py-2 text-sm font-medium border border-gray-200 rounded-lg bg-white hover:bg-gray-50">
+          ⬇ Export CSV
+        </button>
       </div>
 
       {/* Extra field filters */}
@@ -413,11 +336,11 @@ function CompanyAnalyticsInner() {
                                     </tr>
                                   </thead>
                                   <tbody>
-                                    {Object.entries(c.status_distribution || {}).map(([status, data]) => (
+                                    {Object.entries(c.status_distribution || {}).map(([status, d]) => (
                                       <tr key={status}>
                                         <td className="py-0.5 text-gray-700">{status}</td>
-                                        <td className="py-0.5 text-right text-gray-600">{data.count}</td>
-                                        <td className="py-0.5 text-right text-gray-900 font-medium">{fmt(data.total)}</td>
+                                        <td className="py-0.5 text-right text-gray-600">{d.count}</td>
+                                        <td className="py-0.5 text-right text-gray-900 font-medium">{fmt(d.total)}</td>
                                       </tr>
                                     ))}
                                   </tbody>
@@ -427,7 +350,6 @@ function CompanyAnalyticsInner() {
                                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Account Details</p>
                                 <div className="space-y-1 text-xs text-gray-600">
                                   {c.customer_group_name && <p>Group: <span className="font-medium text-gray-800">{c.customer_group_name}</span></p>}
-                                  {c.sales_rep_name && <p>Rep: <span className="font-medium text-gray-800">{c.sales_rep_name}</span></p>}
                                   {c.primary_email && <p>Email: <span className="font-medium text-gray-800">{c.primary_email}</span></p>}
                                   {c.parent_company_name && <p>Parent: <span className="font-medium text-gray-800">{c.parent_company_name}</span></p>}
                                   <p>Avg Order Value: <span className="font-medium text-gray-800">{fmt(c.avg_order_value)}</span></p>
