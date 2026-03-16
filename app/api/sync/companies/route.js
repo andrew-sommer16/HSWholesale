@@ -116,6 +116,8 @@ export async function POST(request) {
                 bc_company_id: String(c.companyId),
                 company_name: c.companyName,
                 status: String(c.companyStatus),
+                customer_group_id: info?.bcGroupId ? String(info.bcGroupId) : (c.bcGroupId ? String(c.bcGroupId) : null),
+                customer_group_name: info?.bcGroupName || c.bcGroupName || null,
                 sales_rep_id: c.salesRepId ? String(c.salesRepId) : null,
                 custom_fields: customFields,
                 parent_company_id: parentCompanyId,
