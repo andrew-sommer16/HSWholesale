@@ -102,7 +102,8 @@ export async function GET(request) {
       .from('b2b_orders')
       .select('bc_order_id, company_id, total_inc_tax, status, custom_status, created_at_bc')
       .eq('store_hash', store_hash)
-      .neq('custom_status', 'Invoice Payment');
+      .neq('custom_status', 'Invoice Payment')
+      .neq('custom_status', 'Incomplete');
 
     if (companyIds.length) ordersQuery = ordersQuery.in('company_id', companyIds);
 

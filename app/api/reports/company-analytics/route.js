@@ -103,6 +103,7 @@ export async function GET(request) {
       .select('bc_order_id, company_id, total_inc_tax, custom_status, created_at_bc')
       .eq('store_hash', store_hash)
       .neq('custom_status', 'Invoice Payment')
+      .neq('custom_status', 'Incomplete')
       .not('created_at_bc', 'is', null);
     if (companyIds.length) ordersQuery = ordersQuery.in('company_id', companyIds);
 

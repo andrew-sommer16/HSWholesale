@@ -38,7 +38,8 @@ export async function GET(request) {
       .from('b2b_orders')
       .select('bc_order_id, company_id, created_at_bc')
       .eq('store_hash', store_hash)
-      .neq('custom_status', 'Invoice Payment');
+      .neq('custom_status', 'Invoice Payment')
+      .neq('custom_status', 'Incomplete');
     if (dateFrom) ordersQuery = ordersQuery.gte('created_at_bc', dateFrom);
     if (dateTo) ordersQuery = ordersQuery.lte('created_at_bc', dateTo + 'T23:59:59');
     if (companies.length) ordersQuery = ordersQuery.in('company_id', companies);

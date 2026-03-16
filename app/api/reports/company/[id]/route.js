@@ -39,6 +39,7 @@ export async function GET(request, { params }) {
       .eq('store_hash', store_hash)
       .eq('company_id', id)
       .neq('custom_status', 'Invoice Payment')
+      .neq('custom_status', 'Incomplete')
       .order('created_at_bc', { ascending: false });
 
     if (dateField === 'shipped') {
