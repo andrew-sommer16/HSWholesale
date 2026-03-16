@@ -48,7 +48,7 @@ export async function GET(request) {
     // Fetch all companies
     let companiesQuery = supabaseAdmin
       .from('companies')
-      .select('bc_company_id, company_name, status, sales_rep_id, customer_group_name, parent_company_name, primary_email, custom_fields, created_at, created_at_bc')
+      .select('bc_company_id, company_name, status, sales_rep_id, customer_group_id, customer_group_name, parent_company_name, primary_email, custom_fields, created_at, created_at_bc')
       .eq('store_hash', store_hash)
       ;
     if (companies.length) companiesQuery = companiesQuery.in('bc_company_id', companies);
@@ -83,6 +83,14 @@ export async function GET(request) {
         if (value) extraFieldOptions[key].add(value);
       });
     });
+    // Build customer group options
+    const customerGroupOptions = {};
+    (allCompanies || []).forEach(c => {
+      if (c.customer_group_id && c.customer_group_name) {
+        customerGroupOptions[c.customer_group_id] = c.customer_group_name;
+      }
+    });
+
     Object.keys(extraFieldOptions).forEach(key => {
       extraFieldOptions[key] = [...extraFieldOptions[key]].sort();
     });
@@ -245,6 +253,7 @@ export async function GET(request) {
       },
       companies: paginated,
       extraFieldOptions,
+      customerGroupOptions,
       pagination: { page, limit, total, totalPages },
     });
 

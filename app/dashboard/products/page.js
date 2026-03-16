@@ -46,21 +46,9 @@ function ProductsPageInner() {
   const [sort, setSort] = useState({ key: 'total_revenue', dir: 'desc' });
   const [customFieldFilters, setCustomFieldFilters] = useState({});
   const { user } = useCurrentUser();
-  const { dateFrom, dateTo, dateField } = useGlobalFilters();
+  const { buildFilterQS, dateFrom, dateTo, dateField, customerGroups, extraFieldFilters: globalExtraFilters } = useGlobalFilters();
 
-  const buildQS = () => {
-    const params = new URLSearchParams();
-    params.set('store_hash', user.store_hash);
-    if (dateFrom) params.set('dateFrom', dateFrom);
-    if (dateTo) params.set('dateTo', dateTo);
-    params.set('dateField', dateField);
-    params.set('limit', topX);
-    params.set('groupBy', groupBy);
-    Object.entries(customFieldFilters).forEach(([key, values]) => {
-      if (values.length) params.set(`cf_${encodeURIComponent(key)}`, values.join(','));
-    });
-    return params.toString();
-  };
+  const buildQS = () => buildFilterQS({ store_hash: user.store_hash, limit: topX, groupBy, ...Object.fromEntries(Object.entries(customFieldFilters).filter(([,v]) => v.length).map(([k,v]) => [`cf_${encodeURIComponent(k)}`, v.join(",")])) });
 
   useEffect(() => {
     if (!user?.store_hash) return;
@@ -69,7 +57,7 @@ function ProductsPageInner() {
       .then(r => r.json())
       .then(d => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [user, dateFrom, dateTo, dateField, topX, groupBy, customFieldFilters]);
+  }, [user, dateFrom, dateTo, dateField, topX, groupBy, customFieldFilters, customerGroups, globalExtraFilters]);
 
   const s = data?.scorecards || {};
   const allProducts = data?.products || [];

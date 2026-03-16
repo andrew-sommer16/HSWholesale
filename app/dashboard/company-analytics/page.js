@@ -77,45 +77,38 @@ function CompanyAnalyticsInner() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [tierFilter, setTierFilter] = useState('all');
-  const [extraFieldFilters, setExtraFieldFilters] = useState({});
   const [sort, setSort] = useState({ key: 'health_score', dir: 'asc' });
   const [page, setPage] = useState(1);
   const [expandedRow, setExpandedRow] = useState(null);
   const limit = 25;
   const { user } = useCurrentUser();
-  const { dateFrom, dateTo, dateField } = useGlobalFilters();
-
-  const buildQS = () => {
-    const params = new URLSearchParams();
-    params.set('store_hash', user.store_hash);
-    params.set('page', page);
-    params.set('limit', limit);
-    if (search) params.set('search', search);
-    if (dateFrom) params.set('dateFrom', dateFrom);
-    if (dateTo) params.set('dateTo', dateTo);
-    params.set('dateField', dateField);
-    Object.entries(extraFieldFilters).forEach(([key, values]) => {
-      if (values.length) params.set(`ccf_${encodeURIComponent(key)}`, values.join(','));
-    });
-    return params.toString();
-  };
+  const { buildFilterQS, dateFrom, dateTo, dateField, customerGroups, extraFieldFilters, setFilterOptions } = useGlobalFilters();
 
   useEffect(() => {
     if (!user?.store_hash) return;
     setLoading(true);
-    fetch(`/api/reports/company-analytics?${buildQS()}`)
+    const qs = buildFilterQS({ store_hash: user.store_hash, page, limit });
+    fetch(`/api/reports/company-analytics?${qs}`)
       .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
+      .then(d => {
+        setData(d);
+        setLoading(false);
+        // Update global filter options from this response
+        if (d.extraFieldOptions || d.customerGroupOptions) {
+          setFilterOptions({
+            extraFieldOptions: d.extraFieldOptions || {},
+            customerGroupOptions: d.customerGroupOptions || {},
+          });
+        }
+      })
       .catch(() => setLoading(false));
-  }, [user, page, dateFrom, dateTo, dateField, extraFieldFilters]);
+  }, [user, page, dateFrom, dateTo, dateField, customerGroups, extraFieldFilters]);
 
-  useEffect(() => { setPage(1); }, [search, tierFilter, extraFieldFilters]);
+  useEffect(() => { setPage(1); }, [search, tierFilter]);
 
   const s = data?.scorecards || {};
   const pagination = data?.pagination || {};
   const allCompanies = data?.companies || [];
-  const extraFieldOptions = data?.extraFieldOptions || {};
-  const activeExtraFilters = Object.values(extraFieldFilters).flat().length;
 
   const filtered = allCompanies
     .filter(c => tierFilter === 'all' || c.tier === tierFilter)
@@ -138,14 +131,6 @@ function CompanyAnalyticsInner() {
     return <span className="text-blue-500 ml-1">{sort.dir === 'asc' ? '↑' : '↓'}</span>;
   };
 
-  const toggleExtraField = (fieldName, value) => {
-    setExtraFieldFilters(prev => {
-      const current = prev[fieldName] || [];
-      const updated = current.includes(value) ? current.filter(v => v !== value) : [...current, value];
-      return { ...prev, [fieldName]: updated };
-    });
-  };
-
   return (
     <div className="p-8 space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
@@ -158,40 +143,6 @@ function CompanyAnalyticsInner() {
           ⬇ Export CSV
         </button>
       </div>
-
-      {/* Extra field filters */}
-      {Object.keys(extraFieldOptions).length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Filter by Account Fields</h3>
-            {activeExtraFilters > 0 && (
-              <button onClick={() => setExtraFieldFilters({})} className="text-xs text-red-500 hover:text-red-700 font-medium">
-                Clear ({activeExtraFilters})
-              </button>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-6">
-            {Object.entries(extraFieldOptions).map(([fieldName, values]) => (
-              <div key={fieldName}>
-                <p className="text-xs font-semibold text-gray-400 mb-1.5">{fieldName}</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {values.map(value => {
-                    const active = (extraFieldFilters[fieldName] || []).includes(value);
-                    return (
-                      <button key={value} onClick={() => toggleExtraField(fieldName, value)}
-                        className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                          active ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-                        }`}>
-                        {value}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Scorecards */}
       <div className="grid grid-cols-4 gap-4">

@@ -86,119 +86,27 @@ function SpreadSection({ title, data, loading }) {
 function OverviewPageInner() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [customerGroupFilters, setCustomerGroupFilters] = useState([]);
-  const [customFieldFilters, setCustomFieldFilters] = useState({});
   const { user } = useCurrentUser();
-  const { dateFrom, dateTo, dateField } = useGlobalFilters();
-
-  const buildQS = () => {
-    if (!user?.store_hash) return '';
-    const params = new URLSearchParams();
-    params.set('store_hash', user.store_hash);
-    if (dateFrom) params.set('dateFrom', dateFrom);
-    if (dateTo) params.set('dateTo', dateTo);
-    params.set('dateField', dateField);
-    if (customerGroupFilters.length) params.set('customerGroups', customerGroupFilters.join(','));
-    Object.entries(customFieldFilters).forEach(([key, values]) => {
-      if (values.length) params.set(`ccf_${encodeURIComponent(key)}`, values.join(','));
-    });
-    return params.toString();
-  };
+  const { buildFilterQS, dateFrom, dateTo, dateField, customerGroups, extraFieldFilters } = useGlobalFilters();
 
   useEffect(() => {
     if (!user?.store_hash) return;
     setLoading(true);
-    fetch(`/api/reports/overview?${buildQS()}`)
+    const qs = buildFilterQS({ store_hash: user.store_hash });
+    fetch(`/api/reports/overview?${qs}`)
       .then(r => r.json())
       .then(d => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [user, dateFrom, dateTo, dateField, customerGroupFilters, customFieldFilters]);
-
-  const toggleCustomerGroup = (id) => {
-    setCustomerGroupFilters(prev =>
-      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-    );
-  };
-
-  const toggleCfFilter = (fieldName, value) => {
-    setCustomFieldFilters(prev => {
-      const current = prev[fieldName] || [];
-      const updated = current.includes(value) ? current.filter(v => v !== value) : [...current, value];
-      return { ...prev, [fieldName]: updated };
-    });
-  };
-
-  const clearAllFilters = () => {
-    setCustomerGroupFilters([]);
-    setCustomFieldFilters({});
-  };
+  }, [user, dateFrom, dateTo, dateField, customerGroups, extraFieldFilters]);
 
   const s = data?.scorecards || {};
-  const customerGroupOptions = data?.customerGroupOptions || {};
-  const companyCustomFieldOptions = data?.companyCustomFieldOptions || {};
-  const activeCfCount = Object.values(customFieldFilters).flat().length + customerGroupFilters.length;
-  const hasFilters = Object.keys(customerGroupOptions).length > 0 || Object.keys(companyCustomFieldOptions).length > 0;
 
   return (
     <div className="p-8 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Overview</h1>
-          <p className="text-gray-500 mt-1">Key metrics, category and brand spend analysis</p>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Overview</h1>
+        <p className="text-gray-500 mt-1">Key metrics, category and brand spend analysis</p>
       </div>
-
-      {/* Filters */}
-      {hasFilters && (
-        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Filters</h3>
-            {activeCfCount > 0 && (
-              <button onClick={clearAllFilters} className="text-xs text-red-500 hover:text-red-700 font-medium">
-                Clear all ({activeCfCount})
-              </button>
-            )}
-          </div>
-          <div className="flex flex-wrap gap-6">
-            {Object.keys(customerGroupOptions).length > 0 && (
-              <div>
-                <p className="text-xs font-semibold text-gray-400 mb-1.5">Customer Groups</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {Object.entries(customerGroupOptions).map(([id, name]) => {
-                    const active = customerGroupFilters.includes(id);
-                    return (
-                      <button key={id} onClick={() => toggleCustomerGroup(id)}
-                        className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                          active ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-                        }`}>
-                        {name}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-            {Object.entries(companyCustomFieldOptions).map(([fieldName, values]) => (
-              <div key={fieldName}>
-                <p className="text-xs font-semibold text-gray-400 mb-1.5">{fieldName}</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {values.map(value => {
-                    const active = (customFieldFilters[fieldName] || []).includes(value);
-                    return (
-                      <button key={value} onClick={() => toggleCfFilter(fieldName, value)}
-                        className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                          active ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
-                        }`}>
-                        {value}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Scorecards */}
       <div className="grid grid-cols-4 gap-4">
