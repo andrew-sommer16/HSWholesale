@@ -74,6 +74,19 @@ export async function GET(request) {
       );
     }
 
+    // Build extra field options from all companies
+    const extraFieldOptions = {};
+    (allCompanies || []).forEach(c => {
+      if (!c.custom_fields) return;
+      Object.entries(c.custom_fields).forEach(([key, value]) => {
+        if (!extraFieldOptions[key]) extraFieldOptions[key] = new Set();
+        if (value) extraFieldOptions[key].add(value);
+      });
+    });
+    Object.keys(extraFieldOptions).forEach(key => {
+      extraFieldOptions[key] = [...extraFieldOptions[key]].sort();
+    });
+
     const companyIds = filteredCompanies.map(c => c.bc_company_id);
 
     // Get all orders for these companies
@@ -231,6 +244,7 @@ export async function GET(request) {
         atRisk: rows.filter(r => r.tier === 'At Risk').length,
       },
       companies: paginated,
+      extraFieldOptions,
       pagination: { page, limit, total, totalPages },
     });
 

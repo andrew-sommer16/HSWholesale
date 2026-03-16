@@ -14,6 +14,15 @@ const TIER_STYLES = {
   'At Risk': 'bg-red-100 text-red-700',
 };
 
+const DATE_PRESETS = [
+  { label: 'Last 30 days', days: 30 },
+  { label: 'Last 90 days', days: 90 },
+  { label: 'Last 6 months', days: 180 },
+  { label: 'Last 12 months', days: 365 },
+  { label: 'This year', year: 'current' },
+  { label: 'Last year', year: 'last' },
+];
+
 const CSV_COLUMNS = [
   { key: 'company_name', label: 'Company' },
   { key: 'primary_email', label: 'Primary Email' },
@@ -72,6 +81,24 @@ function StatusDistribution({ dist }) {
   );
 }
 
+function getPresetDates(preset) {
+  const today = new Date();
+  const pad = (d) => d.toISOString().split('T')[0];
+  if (preset.days) {
+    const from = new Date(today);
+    from.setDate(from.getDate() - preset.days);
+    return { dateFrom: pad(from), dateTo: pad(today) };
+  }
+  if (preset.year === 'current') {
+    return { dateFrom: `${today.getFullYear()}-01-01`, dateTo: pad(today) };
+  }
+  if (preset.year === 'last') {
+    const y = today.getFullYear() - 1;
+    return { dateFrom: `${y}-01-01`, dateTo: `${y}-12-31` };
+  }
+  return { dateFrom: '', dateTo: '' };
+}
+
 function CompanyAnalyticsInner() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -80,9 +107,11 @@ function CompanyAnalyticsInner() {
   const [dateTo, setDateTo] = useState('');
   const [dateField, setDateField] = useState('created');
   const [tierFilter, setTierFilter] = useState('all');
+  const [extraFieldFilters, setExtraFieldFilters] = useState({});
   const [sort, setSort] = useState({ key: 'health_score', dir: 'asc' });
   const [page, setPage] = useState(1);
   const [expandedRow, setExpandedRow] = useState(null);
+  const [showPresets, setShowPresets] = useState(false);
   const limit = 25;
   const { user } = useCurrentUser();
 
@@ -95,6 +124,9 @@ function CompanyAnalyticsInner() {
     if (dateFrom) params.set('dateFrom', dateFrom);
     if (dateTo) params.set('dateTo', dateTo);
     params.set('dateField', dateField);
+    Object.entries(extraFieldFilters).forEach(([key, values]) => {
+      if (values.length) params.set(`ccf_${encodeURIComponent(key)}`, values.join(','));
+    });
     return params.toString();
   };
 
@@ -105,14 +137,14 @@ function CompanyAnalyticsInner() {
       .then(r => r.json())
       .then(d => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [user, page, dateFrom, dateTo, dateField]);
+  }, [user, page, dateFrom, dateTo, dateField, extraFieldFilters]);
 
-  // Client side search and tier filter
-  useEffect(() => { setPage(1); }, [search, tierFilter]);
+  useEffect(() => { setPage(1); }, [search, tierFilter, extraFieldFilters]);
 
   const s = data?.scorecards || {};
   const pagination = data?.pagination || {};
   const allCompanies = data?.companies || [];
+  const extraFieldOptions = data?.extraFieldOptions || {};
 
   const filtered = allCompanies
     .filter(c => tierFilter === 'all' || c.tier === tierFilter)
@@ -135,6 +167,23 @@ function CompanyAnalyticsInner() {
     return <span className="text-blue-500 ml-1">{sort.dir === 'asc' ? '↑' : '↓'}</span>;
   };
 
+  const toggleExtraField = (fieldName, value) => {
+    setExtraFieldFilters(prev => {
+      const current = prev[fieldName] || [];
+      const updated = current.includes(value) ? current.filter(v => v !== value) : [...current, value];
+      return { ...prev, [fieldName]: updated };
+    });
+  };
+
+  const activeExtraFilters = Object.values(extraFieldFilters).flat().length;
+
+  const applyPreset = (preset) => {
+    const { dateFrom: f, dateTo: t } = getPresetDates(preset);
+    setDateFrom(f);
+    setDateTo(t);
+    setShowPresets(false);
+  };
+
   return (
     <div className="p-8 space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-4">
@@ -154,6 +203,27 @@ function CompanyAnalyticsInner() {
               Ship Date
             </button>
           </div>
+          {/* Date presets */}
+          <div className="relative">
+            <button onClick={() => setShowPresets(!showPresets)}
+              className="text-xs font-medium px-3 py-1.5 border border-gray-200 rounded-lg bg-white hover:bg-gray-50 text-gray-600">
+              Presets ▾
+            </button>
+            {showPresets && (
+              <div className="absolute right-0 top-8 bg-white border border-gray-200 rounded-lg shadow-lg z-10 w-40">
+                {DATE_PRESETS.map(p => (
+                  <button key={p.label} onClick={() => applyPreset(p)}
+                    className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg">
+                    {p.label}
+                  </button>
+                ))}
+                <button onClick={() => { setDateFrom(''); setDateTo(''); setShowPresets(false); }}
+                  className="w-full text-left px-4 py-2 text-xs text-red-500 hover:bg-gray-50 border-t border-gray-100">
+                  Clear dates
+                </button>
+              </div>
+            )}
+          </div>
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
             className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500" />
           <span className="text-gray-400 text-sm">to</span>
@@ -165,6 +235,40 @@ function CompanyAnalyticsInner() {
           </button>
         </div>
       </div>
+
+      {/* Extra field filters */}
+      {Object.keys(extraFieldOptions).length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Filter by Account Fields</h3>
+            {activeExtraFilters > 0 && (
+              <button onClick={() => setExtraFieldFilters({})} className="text-xs text-red-500 hover:text-red-700 font-medium">
+                Clear ({activeExtraFilters})
+              </button>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-6">
+            {Object.entries(extraFieldOptions).map(([fieldName, values]) => (
+              <div key={fieldName}>
+                <p className="text-xs font-semibold text-gray-400 mb-1.5">{fieldName}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {values.map(value => {
+                    const active = (extraFieldFilters[fieldName] || []).includes(value);
+                    return (
+                      <button key={value} onClick={() => toggleExtraField(fieldName, value)}
+                        className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                          active ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                        }`}>
+                        {value}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Scorecards */}
       <div className="grid grid-cols-4 gap-4">
@@ -298,7 +402,6 @@ function CompanyAnalyticsInner() {
                         <tr key={`${c.company_id}-expanded`} className="bg-blue-50">
                           <td colSpan={11} className="px-6 py-4">
                             <div className="grid grid-cols-3 gap-6">
-                              {/* Order distribution detail */}
                               <div>
                                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Order Distribution</p>
                                 <table className="w-full text-xs">
@@ -320,7 +423,6 @@ function CompanyAnalyticsInner() {
                                   </tbody>
                                 </table>
                               </div>
-                              {/* Company details */}
                               <div>
                                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Account Details</p>
                                 <div className="space-y-1 text-xs text-gray-600">
@@ -331,10 +433,9 @@ function CompanyAnalyticsInner() {
                                   <p>Avg Order Value: <span className="font-medium text-gray-800">{fmt(c.avg_order_value)}</span></p>
                                 </div>
                               </div>
-                              {/* Custom fields */}
                               {Object.keys(c.custom_fields || {}).length > 0 && (
                                 <div>
-                                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Custom Fields</p>
+                                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Extra Fields</p>
                                   <div className="space-y-1 text-xs text-gray-600">
                                     {Object.entries(c.custom_fields).map(([key, value]) => (
                                       <p key={key}>{key}: <span className="font-medium text-gray-800">{value}</span></p>
