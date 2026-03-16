@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { useCurrentUser } from '@/lib/useCurrentUser';
+import { useRouter } from 'next/navigation';
 import { useGlobalFilters } from '@/lib/filterContext';
 import { exportToCsv } from '@/lib/exportCsv';
 import { Suspense } from 'react';
@@ -47,6 +48,7 @@ function ProductsPageInner() {
   const [customFieldFilters, setCustomFieldFilters] = useState({});
   const { user } = useCurrentUser();
   const { buildFilterQS, dateFrom, dateTo, dateField, customerGroups, extraFieldFilters: globalExtraFilters } = useGlobalFilters();
+  const router = useRouter();
 
   const buildQS = () => buildFilterQS({ store_hash: user.store_hash, limit: topX, groupBy, ...Object.fromEntries(Object.entries(customFieldFilters).filter(([,v]) => v.length).map(([k,v]) => [`cf_${encodeURIComponent(k)}`, v.join(",")])) });
 
@@ -256,7 +258,7 @@ function ProductsPageInner() {
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
                           {i < 3 && <span className="text-xs font-bold text-gray-400">#{i + 1}</span>}
-                          <span className="font-mono text-xs text-gray-700">{p.sku || '—'}</span>
+                          <button onClick={() => router.push(`/dashboard/product?sku=${encodeURIComponent(p.sku)}&product_id=${p.product_id || ''}&mode=${groupBy}`)} className="font-mono text-xs text-blue-600 hover:text-blue-800 hover:underline text-left">{p.sku || '—'}</button>
                         </div>
                         {groupBy === 'product' && p.variant_skus?.length > 1 && (
                           <p className="text-xs text-gray-400 mt-0.5">{p.variant_skus.length} variants</p>
