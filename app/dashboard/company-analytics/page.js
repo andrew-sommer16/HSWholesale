@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useCurrentUser } from '@/lib/useCurrentUser';
 import { useGlobalFilters } from '@/lib/filterContext';
 import { exportToCsv } from '@/lib/exportCsv';
@@ -82,6 +83,7 @@ function CompanyAnalyticsInner() {
   const [expandedRow, setExpandedRow] = useState(null);
   const limit = 25;
   const { user } = useCurrentUser();
+  const router = useRouter();
   const { buildFilterQS, dateFrom, dateTo, dateField, customerGroups, extraFieldFilters, setFilterOptions } = useGlobalFilters();
 
   useEffect(() => {
@@ -245,7 +247,7 @@ function CompanyAnalyticsInner() {
                         className="hover:bg-gray-50 transition-colors cursor-pointer"
                         onClick={() => setExpandedRow(expandedRow === c.company_id ? null : c.company_id)}>
                         <td className="px-4 py-4">
-                          <p className="font-medium text-gray-900">{c.company_name}</p>
+                          <p className="font-medium text-blue-600 hover:text-blue-800 hover:underline cursor-pointer" onClick={e => { e.stopPropagation(); router.push(`/dashboard/company/${c.company_id}`); }}>{c.company_name}</p>
                           {c.primary_email && <p className="text-xs text-gray-400 mt-0.5">{c.primary_email}</p>}
                           {c.parent_company_name && <p className="text-xs text-gray-400 mt-0.5">↳ {c.parent_company_name}</p>}
                         </td>
