@@ -62,6 +62,8 @@ export async function POST(request) {
             let parentCompanyName = null;
             let primaryEmail = c.companyEmail || null;
             let createdAtBc = c.createdAt ? new Date(c.createdAt * 1000).toISOString() : null;
+            let customerGroupId = c.bcGroupId ? String(c.bcGroupId) : null;
+            let customerGroupName = c.bcGroupName || null;
 
             try {
               const { data: detail } = await api.get(`/companies/${c.companyId}`);
@@ -74,33 +76,24 @@ export async function POST(request) {
                 // Primary email
                 primaryEmail = info.companyEmail || info.primaryEmail || primaryEmail;
 
+                // Customer group from detail (more reliable)
+                if (info.bcGroupId) customerGroupId = String(info.bcGroupId);
+                if (info.bcGroupName) customerGroupName = info.bcGroupName;
+
                 // Parent company
-                if (info.parentCompany?.companyId) {
-                  parentCompanyId = String(info.parentCompany.companyId);
-                  parentCompanyName = info.parentCompany.companyName || null;
+                if (info.parentCompany?.id) {
+                  parentCompanyId = String(info.parentCompany.id);
+                  parentCompanyName = info.parentCompany.name || null;
                 }
 
-                // Extra fields — BC B2B Edition uses extraFields array
+                // Extra fields
                 const extraFields = info.extraFields || [];
                 if (Array.isArray(extraFields)) {
                   extraFields.forEach(f => {
-                    // BC extra fields use labelName/fieldValue or fieldName/fieldValue
                     const name = f.labelName || f.fieldName || f.name;
                     const value = f.fieldValue !== undefined ? f.fieldValue : f.value;
                     if (name && value !== null && value !== undefined && value !== '') {
                       customFields[name] = String(value);
-                    }
-                  });
-                }
-
-                // Also check for addressExtraFields at company level
-                const addressFields = info.addressExtraFields || [];
-                if (Array.isArray(addressFields)) {
-                  addressFields.forEach(f => {
-                    const name = f.labelName || f.fieldName || f.name;
-                    const value = f.fieldValue !== undefined ? f.fieldValue : f.value;
-                    if (name && value !== null && value !== undefined && value !== '') {
-                      customFields[`Address: ${name}`] = String(value);
                     }
                   });
                 }
@@ -116,9 +109,9 @@ export async function POST(request) {
                 bc_company_id: String(c.companyId),
                 company_name: c.companyName,
                 status: String(c.companyStatus),
-                customer_group_id: info?.bcGroupId ? String(info.bcGroupId) : (c.bcGroupId ? String(c.bcGroupId) : null),
-                customer_group_name: info?.bcGroupName || c.bcGroupName || null,
                 sales_rep_id: c.salesRepId ? String(c.salesRepId) : null,
+                customer_group_id: customerGroupId,
+                customer_group_name: customerGroupName,
                 custom_fields: customFields,
                 parent_company_id: parentCompanyId,
                 parent_company_name: parentCompanyName,
