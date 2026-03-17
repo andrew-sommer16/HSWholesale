@@ -84,7 +84,7 @@ function CompanyAnalyticsInner() {
   const limit = 25;
   const { user } = useCurrentUser();
   const router = useRouter();
-  const { buildFilterQS, dateFrom, dateTo, dateField, customerGroups, extraFieldFilters, setFilterOptions } = useGlobalFilters();
+  const { buildFilterQS, dateFrom, dateTo, dateField, customerGroups, extraFieldFilters, setFilterOptions, companyStatus } = useGlobalFilters();
 
   useEffect(() => {
     if (!user?.store_hash) return;
