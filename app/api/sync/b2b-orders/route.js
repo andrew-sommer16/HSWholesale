@@ -45,6 +45,12 @@ export async function POST(request) {
         break;
       }
 
+      // Debug: log raw fields of first order to see what the API returns
+      if (offset === 0 && data.data.length > 0) {
+        console.log('B2B orders API sample order keys:', Object.keys(data.data[0]));
+        console.log('B2B orders API sample order:', JSON.stringify(data.data[0]));
+      }
+
       const unique = data.data.filter(o => {
         const key = `${store_hash}:${o.bcOrderId}`;
         if (seen.has(key)) return false;
