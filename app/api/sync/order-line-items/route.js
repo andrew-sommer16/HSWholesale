@@ -39,19 +39,6 @@ async function clearCursor(store_hash) {
     .eq('key', CURSOR_KEY(store_hash));
 }
 
-async function getLastSyncTime(store_hash) {
-  const { data } = await supabase
-    .from('sync_log')
-    .select('completed_at')
-    .eq('store_hash', store_hash)
-    .eq('sync_type', 'order-line-items')
-    .eq('status', 'success')
-    .order('completed_at', { ascending: false })
-    .limit(1)
-    .single();
-  return data?.completed_at || null;
-}
-
 export async function POST(request) {
   const { store_hash, full_sync } = await request.json();
   const startTime = Date.now();
@@ -60,116 +47,90 @@ export async function POST(request) {
     const accessToken = await getStoreCredentials(supabase, store_hash);
     const api = bcAPI(store_hash, accessToken);
 
-    // On full_sync, clear any existing cursor and start from page 1
-    if (full_sync) {
-      await clearCursor(store_hash);
+    // On full_sync, clear any existing cursor
+    if (full_sync) await clearCursor(store_hash);
+
+    // Get all B2B order IDs (only orders with a company_id)
+    const { data: b2bOrders } = await supabase
+      .from('b2b_orders')
+      .select('bc_order_id')
+      .eq('store_hash', store_hash)
+      .not('company_id', 'is', null)
+      .limit(100000);
+
+    const allOrderIds = b2bOrders?.map(o => o.bc_order_id) || [];
+
+    if (allOrderIds.length === 0) {
+      return NextResponse.json({ success: true, done: true, synced: 0, message: 'No B2B orders found' });
     }
 
-    // Resume from saved cursor or start fresh
+    // Resume from cursor or start at index 0
     const cursor = await getCursor(store_hash);
-    let page = cursor?.page || 1;
+    let startIndex = cursor?.index || 0;
     let synced = cursor?.synced || 0;
 
-    const lastSync = full_sync ? null : await getLastSyncTime(store_hash);
-    const dateFilter = lastSync
-      ? `&min_date_modified=${encodeURIComponent(new Date(lastSync).toUTCString())}`
-      : '';
+    const BATCH_SIZE = 10;
 
-    let hasMore = true;
-
-    while (hasMore) {
-      // Check time — stop before hitting Vercel's 60s limit
+    for (let i = startIndex; i < allOrderIds.length; i += BATCH_SIZE) {
+      // Check time limit
       if (Date.now() - startTime > TIME_LIMIT_MS) {
-        // Save progress and return — caller should invoke again to continue
-        await saveCursor(store_hash, { page, synced });
+        await saveCursor(store_hash, { index: i, synced });
         return NextResponse.json({
           success: true,
           done: false,
           synced,
-          resumePage: page,
-          message: `Synced ${synced} line items so far — call again to continue from page ${page}`,
+          resumeIndex: i,
+          total: allOrderIds.length,
+          message: `Synced ${synced} line items (${i}/${allOrderIds.length} orders) — call again to continue`,
         });
       }
 
-      const { data: orders } = await api.get(
-        `/v2/orders?page=${page}&limit=250&sort=id:asc${dateFilter}`
-      );
+      const batch = allOrderIds.slice(i, i + BATCH_SIZE);
 
-      if (!orders || orders.length === 0) {
-        hasMore = false;
-        break;
-      }
+      await Promise.all(batch.map(async (orderId) => {
+        try {
+          const { data: products } = await api.get(`/v2/orders/${orderId}/products`);
+          if (!products || products.length === 0) return;
 
-      // Skip Invoice Payment and Incomplete orders
-      const realOrders = orders.filter(o =>
-        o.status !== 'Invoice Payment' &&
-        o.status !== 'Incomplete' &&
-        !o.custom_status?.includes('Invoice Payment')
-      );
+          const lineItems = products
+            .filter(p => p.name !== 'Invoice Payment')
+            .map(p => {
+              const qty = parseInt(p.quantity || 0);
+              const price = parseFloat(p.price_inc_tax || p.base_price_inc_tax || p.base_price_ex_tax || 0);
+              return {
+                store_hash,
+                bc_order_id: String(orderId),
+                product_id: p.product_id ? String(p.product_id) : null,
+                variant_id: p.variant_id ? String(p.variant_id) : null,
+                sku: p.sku || '',
+                product_name: p.name || '',
+                quantity: qty,
+                base_price: price,
+                line_total: Math.round(price * qty * 100) / 100,
+              };
+            });
 
-      const BATCH_SIZE = 10;
-      for (let i = 0; i < realOrders.length; i += BATCH_SIZE) {
-        // Check time inside batch loop too
-        if (Date.now() - startTime > TIME_LIMIT_MS) {
-          await saveCursor(store_hash, { page, synced });
-          return NextResponse.json({
-            success: true,
-            done: false,
-            synced,
-            resumePage: page,
-            message: `Synced ${synced} line items so far — call again to continue from page ${page}`,
-          });
+          if (lineItems.length === 0) return;
+
+          await supabase
+            .from('order_line_items')
+            .delete()
+            .eq('store_hash', store_hash)
+            .eq('bc_order_id', String(orderId));
+
+          const { error } = await supabase
+            .from('order_line_items')
+            .insert(lineItems);
+
+          if (error) console.error(`Line items insert error for order ${orderId}:`, error);
+          else synced += lineItems.length;
+        } catch (err) {
+          console.error(`Failed to fetch line items for order ${orderId}:`, err.message);
         }
-
-        const batch = realOrders.slice(i, i + BATCH_SIZE);
-        await Promise.all(batch.map(async (order) => {
-          try {
-            const { data: products } = await api.get(`/v2/orders/${order.id}/products`);
-            if (!products || products.length === 0) return;
-
-            const lineItems = products
-              .filter(p => p.name !== 'Invoice Payment')
-              .map(p => {
-                const qty = parseInt(p.quantity || 0);
-                const price = parseFloat(p.price_inc_tax || p.base_price_inc_tax || p.base_price_ex_tax || 0);
-                return {
-                  store_hash,
-                  bc_order_id: String(order.id),
-                  product_id: p.product_id ? String(p.product_id) : null,
-                  variant_id: p.variant_id ? String(p.variant_id) : null,
-                  sku: p.sku || '',
-                  product_name: p.name || '',
-                  quantity: qty,
-                  base_price: price,
-                  line_total: Math.round(price * qty * 100) / 100,
-                };
-              });
-
-            if (lineItems.length === 0) return;
-
-            await supabase
-              .from('order_line_items')
-              .delete()
-              .eq('store_hash', store_hash)
-              .eq('bc_order_id', String(order.id));
-
-            const { error } = await supabase
-              .from('order_line_items')
-              .insert(lineItems);
-
-            if (error) console.error(`Line items insert error for order ${order.id}:`, error);
-            else synced += lineItems.length;
-          } catch (err) {
-            console.error(`Failed to fetch line items for order ${order.id}:`, err.message);
-          }
-        }));
-      }
-
-      hasMore = orders.length === 250;
-      page++;
+      }));
     }
 
-    // All done — clear cursor and log success
+    // All done
     await clearCursor(store_hash);
     await supabase.from('sync_log').insert({
       store_hash,
@@ -179,7 +140,7 @@ export async function POST(request) {
       completed_at: new Date().toISOString(),
     });
 
-    return NextResponse.json({ success: true, done: true, synced });
+    return NextResponse.json({ success: true, done: true, synced, total: allOrderIds.length });
 
   } catch (err) {
     console.error('Order line items sync error:', err);

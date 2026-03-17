@@ -35,6 +35,7 @@ export async function POST(request) {
     let hasMore = true;
     const seen = new Set();
     let synced = 0;
+    let skipped = 0;
 
     while (hasMore) {
       const dateParam = lastSyncUnix ? `&beginDateAt=${lastSyncUnix}` : '';
@@ -52,12 +53,16 @@ export async function POST(request) {
         return true;
       });
 
-      if (unique.length > 0) {
-        const orders = unique.map(o => ({
+      // Only keep orders associated with a B2B company
+      const b2bOrders = unique.filter(o => o.companyId);
+      skipped += unique.length - b2bOrders.length;
+
+      if (b2bOrders.length > 0) {
+        const orders = b2bOrders.map(o => ({
           store_hash,
           bc_order_id: String(o.bcOrderId),
           b2b_order_id: o.id ? String(o.id) : null,
-          company_id: o.companyId ? String(o.companyId) : null,
+          company_id: String(o.companyId),
           status: o.status || '',
           custom_status: o.customStatus || o.status || '',
           total_inc_tax: parseFloat(o.totalIncTax || 0),
@@ -80,7 +85,7 @@ export async function POST(request) {
       hasMore = offset < totalCount;
     }
 
-    return NextResponse.json({ success: true, synced, incremental: !!lastSync });
+    return NextResponse.json({ success: true, synced, skipped, incremental: !!lastSync });
 
   } catch (err) {
     console.error('B2B orders sync error:', err);
