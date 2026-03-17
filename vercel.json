@@ -1,4 +1,11 @@
 {
+  "functions": {
+    "app/api/sync/order-line-items/route.js": { "maxDuration": 300 },
+    "app/api/sync/all/route.js": { "maxDuration": 300 },
+    "app/api/sync/b2b-orders/route.js": { "maxDuration": 300 },
+    "app/api/sync/orders/route.js": { "maxDuration": 300 },
+    "app/api/sync/companies/route.js": { "maxDuration": 300 }
+  },
   "headers": [
     {
       "source": "/(.*)",
