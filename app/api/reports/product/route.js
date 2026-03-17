@@ -20,6 +20,7 @@ export async function GET(request) {
       .neq('custom_status', 'Invoice Payment')
       .neq('custom_status', 'Incomplete')
       .neq('custom_status', 'Cancelled')
+      .not('company_id', 'is', null)
       .limit(100000);
 
     if (dateField === 'shipped') {

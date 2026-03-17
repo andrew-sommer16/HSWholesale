@@ -41,6 +41,7 @@ export async function GET(request) {
       .neq('custom_status', 'Invoice Payment')
       .neq('custom_status', 'Incomplete')
       .neq('custom_status', 'Cancelled')
+      .not('company_id', 'is', null)
       .limit(100000);
     if (dateFrom) ordersQuery = ordersQuery.gte('created_at_bc', dateFrom);
     if (dateTo) ordersQuery = ordersQuery.lte('created_at_bc', dateTo + 'T23:59:59');
