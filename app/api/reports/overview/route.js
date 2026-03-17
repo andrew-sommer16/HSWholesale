@@ -103,7 +103,8 @@ export async function GET(request) {
       .select('bc_order_id, company_id, total_inc_tax, status, custom_status, created_at_bc')
       .eq('store_hash', store_hash)
       .neq('custom_status', 'Invoice Payment')
-      .neq('custom_status', 'Incomplete');
+      .neq('custom_status', 'Incomplete')
+      .limit(100000);
 
     if (companyIds.length) ordersQuery = ordersQuery.in('company_id', companyIds);
 
@@ -114,7 +115,8 @@ export async function GET(request) {
         .from('orders')
         .select('bc_order_id')
         .eq('store_hash', store_hash)
-        .not('date_shipped', 'is', null);
+        .not('date_shipped', 'is', null)
+        .limit(100000);
       if (dateFrom) shippedOrdersQuery = shippedOrdersQuery.gte('date_shipped', dateFrom);
       if (dateTo) shippedOrdersQuery = shippedOrdersQuery.lte('date_shipped', dateTo + 'T23:59:59');
       const { data: shippedOrders } = await shippedOrdersQuery;
@@ -150,7 +152,8 @@ export async function GET(request) {
         .from('order_line_items')
         .select('bc_order_id, product_id, quantity, line_total')
         .eq('store_hash', store_hash)
-        .in('bc_order_id', orderIds);
+        .in('bc_order_id', orderIds)
+        .limit(100000);
 
       const productIds = [...new Set(lineItems?.map(i => i.product_id).filter(Boolean))];
       const { data: productCatalog } = productIds.length > 0

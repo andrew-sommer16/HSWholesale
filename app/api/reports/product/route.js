@@ -18,7 +18,8 @@ export async function GET(request) {
       .select('bc_order_id, company_id, created_at_bc')
       .eq('store_hash', store_hash)
       .neq('custom_status', 'Invoice Payment')
-      .neq('custom_status', 'Incomplete');
+      .neq('custom_status', 'Incomplete')
+      .limit(100000);
 
     if (dateField === 'shipped') {
       const { data: shippedOrders } = await supabaseAdmin
@@ -27,7 +28,8 @@ export async function GET(request) {
         .eq('store_hash', store_hash)
         .not('date_shipped', 'is', null)
         .gte('date_shipped', dateFrom || '2000-01-01')
-        .lte('date_shipped', (dateTo || new Date().toISOString().split('T')[0]) + 'T23:59:59');
+        .lte('date_shipped', (dateTo || new Date().toISOString().split('T')[0]) + 'T23:59:59')
+        .limit(100000);
       const shippedIds = shippedOrders?.map(o => o.bc_order_id) || [];
       if (shippedIds.length) ordersQuery = ordersQuery.in('bc_order_id', shippedIds);
     } else {
@@ -49,7 +51,8 @@ export async function GET(request) {
       .from('order_line_items')
       .select('bc_order_id, product_id, sku, product_name, quantity, base_price, line_total')
       .eq('store_hash', store_hash)
-      .in('bc_order_id', orderIds);
+      .in('bc_order_id', orderIds)
+      .limit(100000);
 
     if (mode === 'sku') {
       lineItemsQuery = lineItemsQuery.eq('sku', sku);

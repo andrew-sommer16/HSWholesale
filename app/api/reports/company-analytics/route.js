@@ -104,7 +104,8 @@ export async function GET(request) {
       .eq('store_hash', store_hash)
       .neq('custom_status', 'Invoice Payment')
       .neq('custom_status', 'Incomplete')
-      .not('created_at_bc', 'is', null);
+      .not('created_at_bc', 'is', null)
+      .limit(100000);
     if (companyIds.length) ordersQuery = ordersQuery.in('company_id', companyIds);
 
     if (dateField === 'shipped') {
@@ -112,7 +113,8 @@ export async function GET(request) {
         .from('orders')
         .select('bc_order_id')
         .eq('store_hash', store_hash)
-        .not('date_shipped', 'is', null);
+        .not('date_shipped', 'is', null)
+        .limit(100000);
       if (dateFrom) shippedQuery = shippedQuery.gte('date_shipped', dateFrom);
       if (dateTo) shippedQuery = shippedQuery.lte('date_shipped', dateTo + 'T23:59:59');
       const { data: shippedOrders } = await shippedQuery;
