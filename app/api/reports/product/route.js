@@ -19,6 +19,7 @@ export async function GET(request) {
       .eq('store_hash', store_hash)
       .neq('custom_status', 'Invoice Payment')
       .neq('custom_status', 'Incomplete')
+      .neq('custom_status', 'Cancelled')
       .limit(100000);
 
     if (dateField === 'shipped') {
