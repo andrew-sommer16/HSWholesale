@@ -67,7 +67,7 @@ export async function GET(request) {
       .from('companies')
       .select('bc_company_id, company_name, customer_group_id, customer_group_name, custom_fields')
       .eq('store_hash', store_hash)
-      .eq('status', '1');
+      .neq('status', '0');
     if (companies.length) companiesQuery = companiesQuery.in('bc_company_id', companies);
     const { data: companiesList } = await companiesQuery;
 
