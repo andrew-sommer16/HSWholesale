@@ -7,12 +7,44 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-async function getLastSyncTime(store_hash, sync_type) {
+const CURSOR_KEY = (store_hash) => `line_items_sync_cursor_${store_hash}`;
+const TIME_LIMIT_MS = 45000; // stop after 45s to stay under Vercel's 60s limit
+
+async function getCursor(store_hash) {
+  const { data } = await supabase
+    .from('app_settings')
+    .select('value')
+    .eq('store_hash', store_hash)
+    .eq('key', CURSOR_KEY(store_hash))
+    .single();
+  return data?.value ? JSON.parse(data.value) : null;
+}
+
+async function saveCursor(store_hash, cursor) {
+  await supabase
+    .from('app_settings')
+    .upsert({
+      store_hash,
+      key: CURSOR_KEY(store_hash),
+      value: JSON.stringify(cursor),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'store_hash,key' });
+}
+
+async function clearCursor(store_hash) {
+  await supabase
+    .from('app_settings')
+    .delete()
+    .eq('store_hash', store_hash)
+    .eq('key', CURSOR_KEY(store_hash));
+}
+
+async function getLastSyncTime(store_hash) {
   const { data } = await supabase
     .from('sync_log')
     .select('completed_at')
     .eq('store_hash', store_hash)
-    .eq('sync_type', sync_type)
+    .eq('sync_type', 'order-line-items')
     .eq('status', 'success')
     .order('completed_at', { ascending: false })
     .limit(1)
@@ -22,23 +54,45 @@ async function getLastSyncTime(store_hash, sync_type) {
 
 export async function POST(request) {
   const { store_hash, full_sync } = await request.json();
+  const startTime = Date.now();
 
   try {
     const accessToken = await getStoreCredentials(supabase, store_hash);
     const api = bcAPI(store_hash, accessToken);
 
-    const lastSync = full_sync ? null : await getLastSyncTime(store_hash, 'order-line-items');
+    // On full_sync, clear any existing cursor and start from page 1
+    if (full_sync) {
+      await clearCursor(store_hash);
+    }
+
+    // Resume from saved cursor or start fresh
+    const cursor = await getCursor(store_hash);
+    let page = cursor?.page || 1;
+    let synced = cursor?.synced || 0;
+
+    const lastSync = full_sync ? null : await getLastSyncTime(store_hash);
     const dateFilter = lastSync
       ? `&min_date_modified=${encodeURIComponent(new Date(lastSync).toUTCString())}`
       : '';
 
-    let page = 1;
     let hasMore = true;
-    let synced = 0;
 
     while (hasMore) {
+      // Check time — stop before hitting Vercel's 60s limit
+      if (Date.now() - startTime > TIME_LIMIT_MS) {
+        // Save progress and return — caller should invoke again to continue
+        await saveCursor(store_hash, { page, synced });
+        return NextResponse.json({
+          success: true,
+          done: false,
+          synced,
+          resumePage: page,
+          message: `Synced ${synced} line items so far — call again to continue from page ${page}`,
+        });
+      }
+
       const { data: orders } = await api.get(
-        `/v2/orders?page=${page}&limit=250&sort=date_modified:desc${dateFilter}`
+        `/v2/orders?page=${page}&limit=250&sort=id:asc${dateFilter}`
       );
 
       if (!orders || orders.length === 0) {
@@ -46,14 +100,27 @@ export async function POST(request) {
         break;
       }
 
-      // Skip Invoice Payment orders
-      const realOrders = orders.filter(o => 
-        o.status !== 'Invoice Payment' && 
+      // Skip Invoice Payment and Incomplete orders
+      const realOrders = orders.filter(o =>
+        o.status !== 'Invoice Payment' &&
+        o.status !== 'Incomplete' &&
         !o.custom_status?.includes('Invoice Payment')
       );
 
       const BATCH_SIZE = 10;
       for (let i = 0; i < realOrders.length; i += BATCH_SIZE) {
+        // Check time inside batch loop too
+        if (Date.now() - startTime > TIME_LIMIT_MS) {
+          await saveCursor(store_hash, { page, synced });
+          return NextResponse.json({
+            success: true,
+            done: false,
+            synced,
+            resumePage: page,
+            message: `Synced ${synced} line items so far — call again to continue from page ${page}`,
+          });
+        }
+
         const batch = realOrders.slice(i, i + BATCH_SIZE);
         await Promise.all(batch.map(async (order) => {
           try {
@@ -102,7 +169,17 @@ export async function POST(request) {
       page++;
     }
 
-    return NextResponse.json({ success: true, synced, incremental: !!lastSync });
+    // All done — clear cursor and log success
+    await clearCursor(store_hash);
+    await supabase.from('sync_log').insert({
+      store_hash,
+      sync_type: 'order-line-items',
+      status: 'success',
+      started_at: new Date(startTime).toISOString(),
+      completed_at: new Date().toISOString(),
+    });
+
+    return NextResponse.json({ success: true, done: true, synced });
 
   } catch (err) {
     console.error('Order line items sync error:', err);

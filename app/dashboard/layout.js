@@ -30,6 +30,7 @@ function DashboardInner({ children }) {
   const [user, setUser] = useState(null);
   const [syncStatus, setSyncStatus] = useState(null);
   const [syncing, setSyncing] = useState(false);
+  const [lineItemsProgress, setLineItemsProgress] = useState(null); // e.g. '1,240 line items synced...'
 
   useEffect(() => {
     fetch('/api/app-auth/me')
@@ -57,12 +58,33 @@ function DashboardInner({ children }) {
 
   const handleSync = async (fullSync = false) => {
     setSyncing(true);
+    setLineItemsProgress(null);
     try {
+      // Run groups 1 & 2 via sync/all
       await fetch('/api/sync/all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ store_hash: user?.store_hash, full_sync: fullSync }),
       });
+
+      // Resumable order-line-items sync — keep calling until done
+      setLineItemsProgress('Starting line items sync...');
+      let done = false;
+      while (!done) {
+        const res = await fetch('/api/sync/order-line-items', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ store_hash: user?.store_hash, full_sync: fullSync }),
+        });
+        const result = await res.json();
+        done = result.done !== false; // done if true or if error
+        if (!done) {
+          setLineItemsProgress(`${(result.synced || 0).toLocaleString()} line items synced — continuing...`);
+        } else {
+          setLineItemsProgress(`✓ ${(result.synced || 0).toLocaleString()} line items synced`);
+        }
+      }
+
       await fetchSyncStatus();
       router.refresh();
     } catch (err) {
@@ -136,6 +158,9 @@ function DashboardInner({ children }) {
               </button>
             )}
           </div>
+          {lineItemsProgress && (
+            <p className="text-xs text-blue-600 mt-2 leading-tight">{lineItemsProgress}</p>
+          )}
         </div>
 
         <div className="p-4 border-t border-gray-200">
