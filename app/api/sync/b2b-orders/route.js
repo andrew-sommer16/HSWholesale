@@ -35,7 +35,6 @@ export async function POST(request) {
     let hasMore = true;
     const seen = new Set();
     let synced = 0;
-    let skipped = 0;
 
     while (hasMore) {
       const dateParam = lastSyncUnix ? `&beginDateAt=${lastSyncUnix}` : '';
@@ -53,16 +52,12 @@ export async function POST(request) {
         return true;
       });
 
-      // Only keep orders associated with a B2B company
-      const b2bOrders = unique.filter(o => o.companyId);
-      skipped += unique.length - b2bOrders.length;
-
-      if (b2bOrders.length > 0) {
-        const orders = b2bOrders.map(o => ({
+      if (unique.length > 0) {
+        const orders = unique.map(o => ({
           store_hash,
           bc_order_id: String(o.bcOrderId),
           b2b_order_id: o.id ? String(o.id) : null,
-          company_id: String(o.companyId),
+          company_id: o.companyId ? String(o.companyId) : null,
           status: o.status || '',
           custom_status: o.customStatus || o.status || '',
           total_inc_tax: parseFloat(o.totalIncTax || 0),
@@ -85,7 +80,11 @@ export async function POST(request) {
       hasMore = offset < totalCount;
     }
 
-    return NextResponse.json({ success: true, synced, skipped, incremental: !!lastSync });
+    // Debug: check total count from API
+    const { data: debugData } = await api.get('/orders?limit=1&offset=0');
+    const apiTotalCount = debugData?.meta?.pagination?.totalCount || 0;
+
+    return NextResponse.json({ success: true, synced, incremental: !!lastSync, debug: { apiTotalCount } });
 
   } catch (err) {
     console.error('B2B orders sync error:', err);
