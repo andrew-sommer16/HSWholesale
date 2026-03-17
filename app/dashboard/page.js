@@ -4,6 +4,7 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { useCurrentUser } from '@/lib/useCurrentUser';
 import { useGlobalFilters } from '@/lib/filterContext';
 import { Suspense } from 'react';
+import { exportToCsv } from '@/lib/exportCsv';
 
 const fmt = (n) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n || 0);
 const COLORS = ['#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#ec4899', '#f43f5e', '#f97316', '#eab308', '#22c55e', '#14b8a6'];
@@ -15,7 +16,7 @@ const SkeletonCard = () => (
   </div>
 );
 
-function SpreadSection({ title, data, loading }) {
+function SpreadSection({ title, data, loading, filename }) {
   if (loading) return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 animate-pulse">
       <div className="h-3 bg-gray-200 rounded w-32 mb-6" />
@@ -33,8 +34,15 @@ function SpreadSection({ title, data, loading }) {
 
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-100">
+      <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
         <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-widest">{title}</h2>
+        <button onClick={() => exportToCsv(filename || `${title.toLowerCase().replace(' ', '-')}.csv`, data, [
+          { key: 'name', label: 'Name' },
+          { key: 'spend', label: 'Spend' },
+          { key: 'pct', label: '% of Total' },
+        ])} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-lg bg-white hover:bg-gray-50 transition-colors text-gray-600">
+          ⬇ Export CSV
+        </button>
       </div>
       <div className="grid grid-cols-2 divide-x divide-gray-100">
         <div className="p-4">
