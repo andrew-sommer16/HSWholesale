@@ -56,28 +56,45 @@ function DashboardInner({ children }) {
       .catch(() => {});
   };
 
+  const syncEndpoint = async (endpoint, fullSync) => {
+    const res = await fetch(`/api/sync/${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ store_hash: user?.store_hash, full_sync: fullSync }),
+    });
+    return res.json();
+  };
+
   const handleSync = async (fullSync = false) => {
     setSyncing(true);
     setLineItemsProgress(null);
     try {
-      // Run groups 1 & 2 via sync/all
-      await fetch('/api/sync/all', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ store_hash: user?.store_hash, full_sync: fullSync }),
-      });
+      // Step 1: Core data — run sequentially
+      setLineItemsProgress('Syncing companies...');
+      await syncEndpoint('companies', fullSync);
+      await syncEndpoint('customer-groups', fullSync);
+      await syncEndpoint('sales-reps', fullSync);
 
-      // Resumable order-line-items sync — keep calling until done
+      // Step 2: Orders and other data — run in parallel
+      setLineItemsProgress('Syncing orders and products...');
+      await Promise.all([
+        syncEndpoint('b2b-orders', fullSync),
+        syncEndpoint('b2b-invoices', fullSync),
+        syncEndpoint('quotes', fullSync),
+        syncEndpoint('net-terms', fullSync),
+        syncEndpoint('products', fullSync),
+      ]);
+
+      // Step 3: Invoice payments
+      setLineItemsProgress('Syncing payments...');
+      await syncEndpoint('invoice-payments', fullSync);
+
+      // Step 4: Resumable order-line-items sync
       setLineItemsProgress('Starting line items sync...');
       let done = false;
       while (!done) {
-        const res = await fetch('/api/sync/order-line-items', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ store_hash: user?.store_hash, full_sync: fullSync }),
-        });
-        const result = await res.json();
-        done = result.done !== false; // done if true or if error
+        const result = await syncEndpoint('order-line-items', fullSync);
+        done = result.done !== false;
         if (!done) {
           setLineItemsProgress(`${(result.synced || 0).toLocaleString()} line items synced — continuing...`);
         } else {
@@ -89,6 +106,7 @@ function DashboardInner({ children }) {
       router.refresh();
     } catch (err) {
       console.error('Sync error:', err);
+      setLineItemsProgress('Sync error — check console');
     } finally {
       setSyncing(false);
     }
