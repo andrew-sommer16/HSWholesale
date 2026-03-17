@@ -89,7 +89,7 @@ function CompanyAnalyticsInner() {
   useEffect(() => {
     if (!user?.store_hash) return;
     setLoading(true);
-    const qs = buildFilterQS({ store_hash: user.store_hash, page, limit });
+    const qs = buildFilterQS({ store_hash: user.store_hash, page, limit, companyStatus });
     fetch(`/api/reports/company-analytics?${qs}`)
       .then(r => r.json())
       .then(d => {

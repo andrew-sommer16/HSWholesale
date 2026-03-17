@@ -15,6 +15,7 @@ export async function GET(request) {
   let companies = parseList(searchParams.get('companies'));
   const customerGroups = parseList(searchParams.get('customerGroups'));
   const salesReps = parseList(searchParams.get('salesReps'));
+  const companyStatus = searchParams.get('companyStatus') || 'all'; // 'all', 'active', 'inactive'
 
   const customFieldFilters = {};
   for (const [key, value] of searchParams.entries()) {
@@ -49,8 +50,10 @@ export async function GET(request) {
     let companiesQuery = supabaseAdmin
       .from('companies')
       .select('bc_company_id, company_name, status, sales_rep_id, customer_group_id, customer_group_name, parent_company_name, primary_email, custom_fields, created_at, created_at_bc')
-      .eq('store_hash', store_hash)
-      ;
+      .eq('store_hash', store_hash);
+    // Status filter: active = status 1 or 3, inactive = status 2
+    if (companyStatus === 'active') companiesQuery = companiesQuery.in('status', ['1', '3']);
+    else if (companyStatus === 'inactive') companiesQuery = companiesQuery.eq('status', '2');
     if (companies.length) companiesQuery = companiesQuery.in('bc_company_id', companies);
     const { data: allCompanies } = await companiesQuery;
 

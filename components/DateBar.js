@@ -16,6 +16,7 @@ export default function DateBar() {
     clearAllFilters,
     dateRangeLabel,
     activeFilterCount,
+    companyStatus, setCompanyStatus,
   } = useGlobalFilters();
 
   const { user } = useCurrentUser();
@@ -68,6 +69,16 @@ export default function DateBar() {
               className={`px-3 py-1.5 transition-colors ${dateField === 'shipped' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
               Ship Date
             </button>
+          </div>
+
+          {/* Company status toggle */}
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
+            {[{ key: 'all', label: 'All' }, { key: 'active', label: 'Active' }, { key: 'inactive', label: 'Inactive' }].map(opt => (
+              <button key={opt.key} onClick={() => setCompanyStatus(opt.key)}
+                className={`px-3 py-1.5 transition-colors ${companyStatus === opt.key ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
+                {opt.label}
+              </button>
+            ))}
           </div>
 
           {/* Presets */}
