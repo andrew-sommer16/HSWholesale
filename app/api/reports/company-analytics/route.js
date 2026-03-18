@@ -51,11 +51,10 @@ export async function GET(request) {
       .from('companies')
       .select('bc_company_id, company_name, status, sales_rep_id, customer_group_id, customer_group_name, parent_company_name, primary_email, custom_fields, created_at, created_at_bc')
       .eq('store_hash', store_hash);
-    // B2B Edition status: 0 = pending, 1 = approved/active, 2 = rejected, 3 = inactive
-    if (companyStatus === 'approved') companiesQuery = companiesQuery.eq('status', '1');
-    else if (companyStatus === 'inactive') companiesQuery = companiesQuery.eq('status', '3');
-    else if (companyStatus === 'rejected') companiesQuery = companiesQuery.eq('status', '2');
-    else if (companyStatus === 'pending') companiesQuery = companiesQuery.eq('status', '0');
+    // B2B Edition status: 0=pending, 1=approved/active, 2=rejected, 3=inactive
+    // Active = approved (1), Inactive = pending/rejected/inactive (0, 2, 3)
+    if (companyStatus === 'active') companiesQuery = companiesQuery.eq('status', '1');
+    else if (companyStatus === 'inactive') companiesQuery = companiesQuery.in('status', ['0', '2', '3']);
     if (companies.length) companiesQuery = companiesQuery.in('bc_company_id', companies);
     const { data: allCompanies } = await companiesQuery;
 
