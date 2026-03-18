@@ -47,7 +47,7 @@ function ProductsPageInner() {
   const [sort, setSort] = useState({ key: 'total_revenue', dir: 'desc' });
   const [customFieldFilters, setCustomFieldFilters] = useState({});
   const { user } = useCurrentUser();
-  const { buildFilterQS, dateFrom, dateTo, dateField, customerGroups, extraFieldFilters: globalExtraFilters } = useGlobalFilters();
+  const { buildFilterQS, dateFrom, dateTo, dateField, customerGroups, extraFieldFilters: globalExtraFilters, companyStatus } = useGlobalFilters();
   const router = useRouter();
 
   const buildQS = () => buildFilterQS({ store_hash: user.store_hash, limit: topX, groupBy, ...Object.fromEntries(Object.entries(customFieldFilters).filter(([,v]) => v.length).map(([k,v]) => [`cf_${encodeURIComponent(k)}`, v.join(",")])) });
@@ -59,7 +59,7 @@ function ProductsPageInner() {
       .then(r => r.json())
       .then(d => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [user, dateFrom, dateTo, dateField, topX, groupBy, customFieldFilters, customerGroups, globalExtraFilters]);
+  }, [user, companyStatus, dateFrom, dateTo, dateField, topX, groupBy, customFieldFilters, customerGroups, globalExtraFilters]);
 
   const s = data?.scorecards || {};
   const allProducts = data?.products || [];

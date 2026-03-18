@@ -95,7 +95,7 @@ function OverviewPageInner() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const { user } = useCurrentUser();
-  const { buildFilterQS, dateFrom, dateTo, dateField, customerGroups, extraFieldFilters } = useGlobalFilters();
+  const { buildFilterQS, dateFrom, dateTo, dateField, customerGroups, extraFieldFilters, companyStatus } = useGlobalFilters();
 
   useEffect(() => {
     if (!user?.store_hash) return;
@@ -105,7 +105,7 @@ function OverviewPageInner() {
       .then(r => r.json())
       .then(d => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [user, dateFrom, dateTo, dateField, customerGroups, extraFieldFilters]);
+  }, [user, companyStatus, dateFrom, dateTo, dateField, customerGroups, extraFieldFilters]);
 
   const s = data?.scorecards || {};
 
