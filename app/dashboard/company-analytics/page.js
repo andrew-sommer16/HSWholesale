@@ -89,7 +89,7 @@ function CompanyAnalyticsInner() {
   useEffect(() => {
     if (!user?.store_hash) return;
     setLoading(true);
-    const qs = buildFilterQS({ store_hash: user.store_hash, page, limit, companyStatus });
+    const qs = buildFilterQS({ store_hash: user.store_hash, page, limit });
     fetch(`/api/reports/company-analytics?${qs}`)
       .then(r => r.json())
       .then(d => {
@@ -104,7 +104,7 @@ function CompanyAnalyticsInner() {
         }
       })
       .catch(() => setLoading(false));
-  }, [user, page, dateFrom, dateTo, dateField, customerGroups, extraFieldFilters]);
+  }, [user, page, companyStatus, dateFrom, dateTo, dateField, customerGroups, extraFieldFilters]);
 
   useEffect(() => { setPage(1); }, [search, tierFilter]);
 

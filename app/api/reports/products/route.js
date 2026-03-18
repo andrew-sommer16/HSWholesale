@@ -12,6 +12,7 @@ export async function GET(request) {
   const groupBy = searchParams.get('groupBy') || 'sku'; // 'sku' or 'product'
   let companies = parseList(searchParams.get('companies'));
   const salesReps = parseList(searchParams.get('salesReps'));
+  const companyStatus = searchParams.get('companyStatus') || 'all';
 
   // Custom field filters — passed as customField[FieldName]=value1,value2
   const customFieldFilters = {};
@@ -31,6 +32,22 @@ export async function GET(request) {
         .in('rep_id', salesReps);
       const repCompanyIds = repAssignments?.map(a => a.company_id) || [];
       companies = companies.length > 0 ? companies.filter(c => repCompanyIds.includes(c)) : repCompanyIds;
+    }
+
+    // Filter by company status
+    if (companyStatus !== 'all') {
+      let statusQuery = supabaseAdmin
+        .from('companies')
+        .select('bc_company_id')
+        .eq('store_hash', store_hash);
+      if (companyStatus === 'active') statusQuery = statusQuery.eq('status', '1');
+      else if (companyStatus === 'inactive') statusQuery = statusQuery.in('status', ['0', '2', '3']);
+      const { data: statusCompanies } = await statusQuery;
+      const statusIds = statusCompanies?.map(c => c.bc_company_id) || [];
+      if (statusIds.length === 0) {
+        return NextResponse.json({ scorecards: { totalSkus: 0, totalRevenue: 0, totalQuantity: 0 }, products: [], customFieldOptions: {} });
+      }
+      companies = companies.length > 0 ? companies.filter(c => statusIds.includes(c)) : statusIds;
     }
 
     // Get orders in date range

@@ -10,8 +10,25 @@ export async function GET(request) {
   const dateFrom = searchParams.get('dateFrom');
   const dateTo = searchParams.get('dateTo');
   const dateField = searchParams.get('dateField') || 'created';
+  const companyStatus = searchParams.get('companyStatus') || 'all';
 
   try {
+    // Filter by company status if set
+    let allowedCompanyIds = null;
+    if (companyStatus !== 'all') {
+      let statusQuery = supabaseAdmin
+        .from('companies')
+        .select('bc_company_id')
+        .eq('store_hash', store_hash);
+      if (companyStatus === 'active') statusQuery = statusQuery.eq('status', '1');
+      else if (companyStatus === 'inactive') statusQuery = statusQuery.in('status', ['0', '2', '3']);
+      const { data: statusCompanies } = await statusQuery;
+      allowedCompanyIds = statusCompanies?.map(c => c.bc_company_id) || [];
+      if (allowedCompanyIds.length === 0) {
+        return NextResponse.json({ product: null, skus: [], companies: [], scorecards: { totalCompanies: 0, totalOrders: 0, totalQuantity: 0, totalSpend: 0 } });
+      }
+    }
+
     // Get orders filtered by date
     let ordersQuery = supabaseAdmin
       .from('b2b_orders')
@@ -39,6 +56,7 @@ export async function GET(request) {
       if (dateTo) ordersQuery = ordersQuery.lte('created_at_bc', dateTo + 'T23:59:59');
     }
 
+    if (allowedCompanyIds) ordersQuery = ordersQuery.in('company_id', allowedCompanyIds);
     const { data: orders } = await ordersQuery;
     const orderIds = orders?.map(o => o.bc_order_id) || [];
     const orderMap = {};

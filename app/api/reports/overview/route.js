@@ -97,6 +97,18 @@ export async function GET(request) {
     // Get order line items with orders for date filtering
     const companyIds = companiesList?.map(c => c.bc_company_id) || [];
 
+    // If a companyStatus filter is active but returns no companies, return zeros immediately
+    const companyStatus = searchParams.get('companyStatus') || 'all';
+    if (companyStatus !== 'all' && companyIds.length === 0) {
+      return NextResponse.json({
+        scorecards: { totalSpend: 0, orderCount: 0, avgOrderValue: 0, totalAccounts: 0 },
+        categorySpend: [],
+        brandSpend: [],
+        companyCustomFieldOptions: {},
+        customerGroupOptions: {},
+      });
+    }
+
     // Get orders filtered by date and company
     let ordersQuery = supabaseAdmin
       .from('b2b_orders')
