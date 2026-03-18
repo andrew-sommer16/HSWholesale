@@ -63,11 +63,13 @@ export async function GET(request) {
     }
 
     // Fetch all companies for this store (for account count and custom field options)
+    const companyStatus = searchParams.get('companyStatus') || 'all';
     let companiesQuery = supabaseAdmin
       .from('companies')
       .select('bc_company_id, company_name, customer_group_id, customer_group_name, custom_fields')
-      .eq('store_hash', store_hash)
-      .neq('status', '0');
+      .eq('store_hash', store_hash);
+    if (companyStatus === 'active') companiesQuery = companiesQuery.eq('status', '1');
+    else if (companyStatus === 'inactive') companiesQuery = companiesQuery.in('status', ['0', '2', '3']);
     if (companies.length) companiesQuery = companiesQuery.in('bc_company_id', companies);
     const { data: companiesList } = await companiesQuery;
 
@@ -98,7 +100,6 @@ export async function GET(request) {
     const companyIds = companiesList?.map(c => c.bc_company_id) || [];
 
     // If a companyStatus filter is active but returns no companies, return zeros immediately
-    const companyStatus = searchParams.get('companyStatus') || 'all';
     if (companyStatus !== 'all' && companyIds.length === 0) {
       return NextResponse.json({
         scorecards: { totalSpend: 0, orderCount: 0, avgOrderValue: 0, totalAccounts: 0 },
