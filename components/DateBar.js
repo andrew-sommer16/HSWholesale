@@ -73,7 +73,7 @@ export default function DateBar() {
 
           {/* Company status toggle */}
           <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium">
-            {[{ key: 'all', label: 'All' }, { key: 'active', label: 'Active' }, { key: 'inactive', label: 'Inactive' }].map(opt => (
+            {[{ key: 'all', label: 'All' }, { key: 'approved', label: 'Approved' }, { key: 'inactive', label: 'Inactive' }, { key: 'rejected', label: 'Rejected' }, { key: 'pending', label: 'Pending' }].map(opt => (
               <button key={opt.key} onClick={() => setCompanyStatus(opt.key)}
                 className={`px-3 py-1.5 transition-colors ${companyStatus === opt.key ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
                 {opt.label}
